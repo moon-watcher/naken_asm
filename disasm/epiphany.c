@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -51,11 +51,12 @@ int disasm_epiphany(struct _memory *memory, uint32_t address, char *instr, int *
 {
   uint32_t opcode32;
   uint16_t opcode16;
+  uint32_t special;
   int offset;
   int imm;
   //int count = 1;
-  int rd,rn,rm;
-  int n;
+  int rd, rn, rm;
+  int n, m;
 
   instr[0] = 0;
 
@@ -90,21 +91,23 @@ int disasm_epiphany(struct _memory *memory, uint32_t address, char *instr, int *
       {
         case OP_BRANCH_16:
           offset = (int8_t)(opcode16 >> 8);
-          sprintf(instr, "%s 0x%x  (offset=%d)", table_epiphany[n].instr, (address + 2) + offset, offset);
+          offset = offset << 1;
+          sprintf(instr, "%s 0x%x  (offset=%d)", table_epiphany[n].instr, address + offset, offset);
           return 2;
         case OP_BRANCH_32:
-          offset = ((int)opcode32) >> 8;
-          sprintf(instr, "%s 0x%x  (offset=%d)", table_epiphany[n].instr, (address + 2) + offset, offset);
+          offset = ((int32_t)opcode32) >> 8;
+          offset = offset << 1;
+          sprintf(instr, "%s 0x%x  (offset=%d)", table_epiphany[n].instr, address + offset, offset);
           return 4;
         case OP_DISP_IMM3_16:
           imm = (opcode16 >> 7) & 0x7;
           if (imm != 0)
           {
-            sprintf(instr, "%s r%d,[r%d,#%d]", table_epiphany[n].instr, rd, rn, imm);
+            sprintf(instr, "%s r%d, [r%d, #%d]", table_epiphany[n].instr, rd, rn, imm);
           }
             else
           {
-            sprintf(instr, "%s r%d,[r%d]", table_epiphany[n].instr, rd, rn);
+            sprintf(instr, "%s r%d, [r%d]", table_epiphany[n].instr, rd, rn);
           }
           return 2;
         case OP_DISP_IMM11_32:
@@ -112,89 +115,89 @@ int disasm_epiphany(struct _memory *memory, uint32_t address, char *instr, int *
           imm = ((opcode32 & 0x01000000) == 0) ? imm : -imm;
           if (imm != 0)
           {
-            sprintf(instr, "%s r%d,[r%d,#%d]", table_epiphany[n].instr, rd, rn, imm);
+            sprintf(instr, "%s r%d, [r%d, #%d]", table_epiphany[n].instr, rd, rn, imm);
           }
             else
           {
-            sprintf(instr, "%s r%d,[r%d]", table_epiphany[n].instr, rd, rn);
+            sprintf(instr, "%s r%d, [r%d]", table_epiphany[n].instr, rd, rn);
           }
           return 4;
         case OP_INDEX_16:
-          sprintf(instr, "%s r%d,[r%d,r%d]", table_epiphany[n].instr, rd, rn, rm);
+          sprintf(instr, "%s r%d, [r%d, r%d]", table_epiphany[n].instr, rd, rn, rm);
           return 2;
         case OP_INDEX_32:
           if ((opcode32 & 0x00100000) == 0)
           {
-            sprintf(instr, "%s r%d,[r%d,r%d]", table_epiphany[n].instr, rd, rn, rm);
+            sprintf(instr, "%s r%d, [r%d, r%d]", table_epiphany[n].instr, rd, rn, rm);
           }
             else
           {
-            sprintf(instr, "%s r%d,[r%d,-r%d]", table_epiphany[n].instr, rd, rn, rm);
+            sprintf(instr, "%s r%d, [r%d, -r%d]", table_epiphany[n].instr, rd, rn, rm);
           }
           return 4;
         case OP_POST_MOD_16:
-          sprintf(instr, "%s r%d,[r%d],r%d", table_epiphany[n].instr, rd, rn, rm);
+          sprintf(instr, "%s r%d, [r%d], r%d", table_epiphany[n].instr, rd, rn, rm);
           return 2;
         case OP_POST_MOD_32:
           if ((opcode32 & 0x00100000) == 0)
           {
-            sprintf(instr, "%s r%d,[r%d],r%d", table_epiphany[n].instr, rd, rn, rm);
+            sprintf(instr, "%s r%d, [r%d], r%d", table_epiphany[n].instr, rd, rn, rm);
           }
             else
           {
-            sprintf(instr, "%s r%d,[r%d],-r%d", table_epiphany[n].instr, rd, rn, rm);
+            sprintf(instr, "%s r%d, [r%d], -r%d", table_epiphany[n].instr, rd, rn, rm);
           }
           return 4;
         case OP_POST_MOD_DISP_32:
           imm = ((opcode32 >> 7) & 0x7) | (((opcode32 >> 16) & 0xff) << 3);
           imm = ((opcode32 & 0x01000000) == 0) ? imm : -imm;
-          sprintf(instr, "%s r%d,[r%d],#%d", table_epiphany[n].instr, rd, rn, imm);
+          sprintf(instr, "%s r%d, [r%d], #%d", table_epiphany[n].instr, rd, rn, imm);
           return 4;
         case OP_REG_IMM_16:
           imm = ((opcode32 >> 5) & 0xff);
-          sprintf(instr, "%s r%d,#0x%02x", table_epiphany[n].instr, rd, imm);
+          sprintf(instr, "%s r%d, #0x%04x", table_epiphany[n].instr, rd, imm);
           return 2;
         case OP_REG_IMM_32:
           imm = ((opcode32 >> 5) & 0xff);
           imm |= ((opcode32 >> 20) & 0xff) << 8;
-          sprintf(instr, "%s r%d,#0x%02x", table_epiphany[n].instr, rd, imm);
+          sprintf(instr, "%s r%d, #0x%04x", table_epiphany[n].instr, rd, imm);
           return 4;
         case OP_REG_2_IMM_16:
           imm = ((opcode32 >> 7) & 0x7);
-          if ((imm & 0x4) != 0) { imm = imm | 0xffffffff8; }
-          sprintf(instr, "%s r%d,r%d,#%d", table_epiphany[n].instr, rd, rn, imm);
+          if ((imm & 0x4) != 0) { imm = imm | 0xfffffff8; }
+          sprintf(instr, "%s r%d, r%d, #%d", table_epiphany[n].instr, rd, rn, imm);
           return 2;
         case OP_REG_2_IMM_32:
           imm = ((opcode32 >> 7) & 0x7);
           imm |= ((opcode32 >> 16) & 0xff) << 3;
-          if ((imm & 0x400) != 0) { imm = imm | 0xffffff800; }
-          sprintf(instr, "%s r%d,r%d,#%d", table_epiphany[n].instr, rd, rn, imm);
+          if ((imm & 0x400) != 0) { imm = imm | 0xfffff800; }
+          sprintf(instr, "%s r%d, r%d, #%d", table_epiphany[n].instr, rd, rn, imm);
           return 4;
         case OP_REG_2_IMM5_16:
           imm = ((opcode32 >> 5) & 0x1f);
-          sprintf(instr, "%s r%d,r%d,#%d", table_epiphany[n].instr, rd, rn, imm);
+          sprintf(instr, "%s r%d, r%d, #%d", table_epiphany[n].instr, rd, rn, imm);
           return 2;
         case OP_REG_2_IMM5_32:
           imm = ((opcode32 >> 5) & 0x1f);
-          sprintf(instr, "%s r%d,r%d,#%d", table_epiphany[n].instr, rd, rn, imm);
+          sprintf(instr, "%s r%d, r%d, #%d", table_epiphany[n].instr, rd, rn, imm);
           return 4;
         case OP_REG_2_ZERO_16:
-          sprintf(instr, "%s r%d,r%d", table_epiphany[n].instr, rd, rn);
+          sprintf(instr, "%s r%d, r%d", table_epiphany[n].instr, rd, rn);
           return 2;
         case OP_REG_2_ZERO_32:
-          sprintf(instr, "%s r%d,r%d", table_epiphany[n].instr, rd, rn);
+          sprintf(instr, "%s r%d, r%d", table_epiphany[n].instr, rd, rn);
           return 4;
         case OP_REG_3_16:
-          sprintf(instr, "%s r%d,r%d,r%d", table_epiphany[n].instr, rd, rn, rm);
+          sprintf(instr, "%s r%d, r%d, r%d", table_epiphany[n].instr, rd, rn, rm);
           return 2;
         case OP_REG_3_32:
-          sprintf(instr, "%s r%d,r%d,r%d", table_epiphany[n].instr, rd, rn, rm);
+          sprintf(instr, "%s r%d, r%d, r%d", table_epiphany[n].instr, rd, rn, rm);
           return 4;
         case OP_REG_2_16:
-          sprintf(instr, "%s r%d,r%d", table_epiphany[n].instr, rd, rn);
+          sprintf(instr, "%s r%d, r%d", table_epiphany[n].instr, rd, rn);
           return 2;
         case OP_REG_2_32:
-          sprintf(instr, "%s r%d,r%d", table_epiphany[n].instr, rd, rn);
+          sprintf(instr, "%s r%d, r%d", table_epiphany[n].instr, rd, rn);
           return 4;
         case OP_REG_1_16:
           sprintf(instr, "%s r%d", table_epiphany[n].instr, rn);
@@ -211,6 +214,26 @@ int disasm_epiphany(struct _memory *memory, uint32_t address, char *instr, int *
           return 2;
         case OP_NONE_32:
           sprintf(instr, "%s", table_epiphany[n].instr);
+          return 4;
+        case OP_SPECIAL_RN_16:
+          special = 0xf0400 + (rn * 4);
+          sprintf(instr, "%s 0x%05x, r%d", table_epiphany[n].instr, special, rd);
+          return 2;
+        case OP_RD_SPECIAL_16:
+          special = 0xf0400 + (rn * 4);
+          sprintf(instr, "%s r%d, 0x%05x", table_epiphany[n].instr, rd, special);
+          return 2;
+        case OP_SPECIAL_RN_32:
+          m = (opcode32 >> 20) & 0x3;
+          m = m + 4;
+          special = (0xf0000 + (rn * 4)) | (m << 8);
+          sprintf(instr, "%s 0x%05x, r%d", table_epiphany[n].instr, special, rd);
+          return 4;
+        case OP_RD_SPECIAL_32:
+          m = (opcode32 >> 20) & 0x3;
+          m = m + 4;
+          special = (0xf0000 + (rn * 4)) | (m << 8);
+          sprintf(instr, "%s r%d, 0x%05x", table_epiphany[n].instr, rd, special);
           return 4;
         default:
           break;
@@ -258,10 +281,19 @@ void list_output_epiphany(struct _asm_context *asm_context, uint32_t start, uint
 
     fprintf(asm_context->list, " %-40s cycles: ", instruction);
 
-    if (cycles_min == cycles_max)
-    { fprintf(asm_context->list, "%d\n", cycles_min); }
+    if (cycles_min < 1)
+    {
+      fprintf(asm_context->list, "?\n");
+    }
       else
-    { fprintf(asm_context->list, "%d-%d\n", cycles_min, cycles_max); }
+    if (cycles_min == cycles_max)
+    {
+      fprintf(asm_context->list, "%d\n", cycles_min);
+    }
+      else
+    {
+      fprintf(asm_context->list, "%d-%d\n", cycles_min, cycles_max);
+    }
 
     start += count;
   }
@@ -272,6 +304,7 @@ void disasm_range_epiphany(struct _memory *memory, uint32_t flags, uint32_t star
 {
   char instruction[128];
   int cycles_min = 0,cycles_max = 0;
+  int count;
   int num;
 
   printf("\n");
@@ -283,7 +316,7 @@ void disasm_range_epiphany(struct _memory *memory, uint32_t flags, uint32_t star
   {
     num = READ_RAM(start) | (READ_RAM(start + 1) << 8);
 
-    disasm_epiphany(memory, start, instruction, &cycles_min, &cycles_max);
+    count = disasm_epiphany(memory, start, instruction, &cycles_min, &cycles_max);
 
     if (cycles_min < 1)
     {
@@ -299,18 +332,7 @@ void disasm_range_epiphany(struct _memory *memory, uint32_t flags, uint32_t star
       printf("0x%04x: 0x%08x %-40s %d-%d\n", start, num, instruction, cycles_min, cycles_max);
     }
 
-#if 0
-    count -= 4;
-    while (count > 0)
-    {
-      start = start+4;
-      num = READ_RAM(start) | (READ_RAM(start + 1) << 8);
-      printf("0x%04x: 0x%04x\n", start, num);
-      count -= 4;
-    }
-#endif
-
-    start = start + 4;
+    start = start + count;
   }
 }
 

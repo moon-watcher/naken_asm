@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -21,7 +21,10 @@ void add_bin8(struct _asm_context *asm_context, uint8_t b, int flags)
 {
   int line = DL_NO_CG;
 
-  if (asm_context->pass == 2 && flags == IS_OPCODE) { line = asm_context->line; }
+  if (asm_context->pass == 2 && flags == IS_OPCODE)
+  {
+    line = asm_context->line;
+  }
 
   if (asm_context->pass == 1 && asm_context->pass_1_write_disable == 1)
   {
@@ -36,7 +39,10 @@ void add_bin16(struct _asm_context *asm_context, uint16_t b, int flags)
 {
   int line = DL_NO_CG;
 
-  if (asm_context->pass == 2 && flags == IS_OPCODE) { line = asm_context->line; }
+  if (asm_context->pass == 2 && flags == IS_OPCODE)
+  {
+    line = asm_context->line;
+  }
 
   if (asm_context->pass == 1 && asm_context->pass_1_write_disable == 1)
   {
@@ -91,7 +97,7 @@ int eat_operand(struct _asm_context *asm_context)
   // Eat all tokens until an ',' or EOL
   while(1)
   {
-    token_type=tokens_get(asm_context, token, TOKENLEN);
+    token_type = tokens_get(asm_context, token, TOKENLEN);
 
     if (IS_TOKEN(token,',') || token_type == TOKEN_EOL || token_type == TOKEN_EOF)
     {
@@ -101,6 +107,53 @@ int eat_operand(struct _asm_context *asm_context)
   }
 
   return -1;
+}
+
+int ignore_paren_expression(struct _asm_context *asm_context)
+{
+  char token[TOKENLEN];
+  int token_type;
+  int paren_count = 0;
+
+  // Remove expression that starts with (.
+  while(1)
+  {
+    token_type = tokens_get(asm_context, token, TOKENLEN);
+
+    if (IS_TOKEN(token,'('))
+    {
+      paren_count++;
+    }
+      else
+    if (IS_TOKEN(token,')'))
+    {
+      paren_count--;
+    }
+      else
+    if (token_type == TOKEN_EOL)
+    {
+      print_error_unexp(token, asm_context);
+      return -1;
+    }
+
+    if (paren_count == 0) { break; }
+  }
+
+  return 0;
+}
+
+int ignore_line(struct _asm_context *asm_context)
+{
+  char token[TOKENLEN];
+  int token_type;
+
+  while(1)
+  {
+    token_type = tokens_get(asm_context, token, TOKENLEN);
+    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF) { break; }
+  }
+
+  return 0;
 }
 
 void lower_copy(char *d, const char *s)
@@ -154,5 +207,4 @@ int check_range(struct _asm_context *asm_context, char *type, int num, int min, 
 
   return 0;
 }
-
 

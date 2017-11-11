@@ -104,7 +104,7 @@ static void arm_calc_shift(char *temp, int shift, int reg)
 static void arm_register_list(char *instruction, int opcode)
 {
   char temp[16];
-  int first = 33;
+  //int first = 33;
   int count = 0;
   int n;
 
@@ -112,24 +112,14 @@ static void arm_register_list(char *instruction, int opcode)
   {
     if ((opcode & 1) == 1)
     {
-      if (first == 33)
-      {
-        sprintf(temp, "r%d", n);
-        if (count != 0) { strcat(instruction, ", "); }
-        strcat(instruction, temp);
-        first = n;
-      }
+      sprintf(temp, "r%d", n);
+      if (count != 0) { strcat(instruction, ", "); }
+      strcat(instruction, temp);
+      //first = n;
+
       count++;
     }
-      else
-    {
-      if (n - first > 1)
-      {
-        sprintf(temp, "-r%d", n - 1);
-        strcat(instruction, temp);
-      }
-      first = 33;
-    }
+
     opcode >>= 1;
   }
 }
@@ -250,7 +240,7 @@ static void process_swap(char *instruction, uint32_t opcode)
 
 static void process_mrs(char *instruction, uint32_t opcode)
 {
-  int ps=(opcode>>22)&1;
+  int ps = (opcode >> 22) & 1;
 
   sprintf(instruction, "mrs%s %s, %s",
     arm_cond[ARM_NIB(28)],
@@ -260,7 +250,7 @@ static void process_mrs(char *instruction, uint32_t opcode)
 
 static void process_msr_all(char *instruction, uint32_t opcode)
 {
-  int ps=(opcode>>22)&1;
+  int ps = (opcode >> 22) & 1;
 
   sprintf(instruction, "msr%s %s, %s",
     arm_cond[ARM_NIB(28)],
@@ -395,20 +385,25 @@ static void process_undefined(char *instruction, uint32_t opcode)
 static void process_ldm_stm(char *instruction, uint32_t opcode, int index)
 {
   char *pru_str[] = { "db", "ib", "da", "ia" };
+  int cond = (opcode >> 28) & 0xf;
   int w = (opcode >> 21) & 1;
   int s = (opcode >> 22) & 1;
   int pru = (opcode >> 23)  &0x3;
 
+  //sprintf(instruction, "%s%s%s %s%s, {",
   sprintf(instruction, "%s%s%s %s%s, {",
     table_arm[index].instr,
+    arm_cond[cond],
     pru_str[pru],
-    (s == 1) ? "s" : "",
+    //(s == 1) ? "s" : "",
     arm_reg[ARM_NIB(16)],
     (w == 1) ? "!" : "");
 
   arm_register_list(instruction, opcode);
 
   strcat(instruction, "}");
+
+  if (s == 1) { strcat(instruction, "^"); }
 }
 
 static void process_branch(char *instruction, uint32_t opcode, uint32_t address)

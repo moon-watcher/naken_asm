@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -151,7 +151,7 @@ static void write_elf_header(FILE *out, struct _elf *elf, struct _memory *memory
       elf->e_machine = 105;
       elf->e_flags = 11;
       break;
-    case CPU_TYPE_680X0:
+    case CPU_TYPE_68000:
       elf->e_machine = 4;
       break;
     case CPU_TYPE_68HC08:
@@ -170,6 +170,11 @@ static void write_elf_header(FILE *out, struct _elf *elf, struct _memory *memory
       elf->e_flags = 0x85;
       elf->e_shnum++;
       break;
+    case CPU_TYPE_CELL:
+      elf->e_machine = 23;
+      elf->e_ident[EI_OSABI] = 0;
+      elf->e_type = 2;  // Executable
+      break;
     case CPU_TYPE_DSPIC:
       elf->e_machine = 118;
       elf->e_flags = 1;
@@ -180,8 +185,17 @@ static void write_elf_header(FILE *out, struct _elf *elf, struct _memory *memory
       elf->e_flags = 0x20924001;
       elf->e_type = 2;  // Executable
       break;
+    case CPU_TYPE_EPIPHANY:
+      elf->e_machine = 0x1223;
+      elf->e_ident[EI_OSABI] = 0;
+      elf->e_type = 1;  // Relocatable
+      break;
     case CPU_TYPE_MIPS32:
       elf->e_machine = 8;
+      break;
+    case CPU_TYPE_POWERPC:
+      elf->e_machine = 20;
+      elf->e_ident[EI_OSABI] = 0;
       break;
     case CPU_TYPE_STM8:
       elf->e_machine = 186;
@@ -250,7 +264,7 @@ static void write_elf_text_and_data(FILE *out, struct _elf *elf, struct _memory 
     putc(memory_read_m(memory, i), out);
   }
 
-  if (alignment != 1)
+  if (alignment > 1)
   {
     int count = memory->high_address - memory->low_address + 1;
     int mask = alignment - 1;
@@ -338,13 +352,13 @@ static void write_symtab(FILE *out, struct _symtab *symtab, struct _elf *elf)
 
 static int find_section(char *sections, char *name, int len)
 {
-int n = 0;
+  int n = 0;
 
   while(n < len)
   {
     if (sections[n] == '.')
     {
-      if (strcmp(sections+n, name) == 0) return n;
+      if (strcmp(sections + n, name) == 0) { return n; }
       n += strlen(sections+n);
     }
 
@@ -365,7 +379,7 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
   struct _shdr shdr;
   struct _symtab symtab;
   struct _elf elf;
-  int i;
+  //int i;
 
   memset(&elf, 0, sizeof(elf));
   elf.cpu_type = cpu_type;
@@ -403,13 +417,15 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
 
   // .shstrtab section
   elf.sections_offset.shstrtab = ftell(out);
-  i = fwrite(elf.string_table, 1, get_string_table_len(elf.string_table), out);
+  fwrite(elf.string_table, 1, get_string_table_len(elf.string_table), out);
   putc(0x00, out); // null
   elf.sections_size.shstrtab = ftell(out) - elf.sections_offset.shstrtab;
 
+  int symbol_count = 0;
+  const int strtab_extras = 2;
+
   {
     struct _symbols_iter iter;
-    int symbol_count;
     int sym_offset;
     int n;
 
@@ -423,7 +439,7 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
     putc(0x00, out); // none
 
     fprintf(out, "%s%c", filename, 0);
-    sym_offset = strlen(filename)+2;
+    sym_offset = strlen(filename) + 2;
 
     n = 0;
     memset(&iter, 0, sizeof(iter));
@@ -433,7 +449,7 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
 
       symbol_address[n++] = sym_offset;
       fprintf(out, "%s%c", iter.name, 0);
-      sym_offset += strlen((char *)iter.name)+1;
+      sym_offset += strlen((char *)iter.name) + 1;
     }
 
     elf.sections_size.strtab = ftell(out) - elf.sections_offset.strtab;
@@ -523,8 +539,9 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
       size += (alignment - size) & mask;
     }
 
-    if (i == 0) { strcpy(name, ".text"); }
-    else { sprintf(name, ".text%d", i); }
+    //if (i == 0) { strcpy(name, ".text"); }
+    //else { sprintf(name, ".text%d", i); }
+    strcpy(name, ".text");
 
     shdr.sh_name = find_section(elf.string_table, name, sizeof(elf.string_table));
     shdr.sh_type = 1;
@@ -550,8 +567,9 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
       size += (alignment - size) & mask;
     }
 
-    if (i == 0) { strcpy(name, ".data"); }
-    else { sprintf(name, ".data%d", i); }
+    //if (i == 0) { strcpy(name, ".data"); }
+    //else { sprintf(name, ".data%d", i); }
+    strcpy(name, ".data");
 
     shdr.sh_name = find_section(elf.string_table, name, sizeof(elf.string_table));
     shdr.sh_type = 1;
@@ -581,7 +599,7 @@ int write_elf(struct _memory *memory, FILE *out, struct _symbols *symbols, const
   shdr.sh_offset = elf.sections_offset.symtab;
   shdr.sh_size = elf.sections_size.symtab;
   shdr.sh_link = 4;
-  shdr.sh_info = 4;
+  shdr.sh_info = symbol_count + strtab_extras;
   shdr.sh_addralign = 4;
   shdr.sh_entsize = 16;
   write_shdr(out, &shdr, &elf);

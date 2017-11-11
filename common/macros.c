@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -21,13 +21,15 @@
 
 static int get_param_index(char *params, char *name)
 {
-  int count = 1;
+  int count = 0;
   int ptr = 0;
 
   while(params[ptr] != 0)
   {
-    if (strcmp(params + ptr,name) == 0) return count;
+    if (strcmp(params + ptr, name) == 0) { return count + 1; }
+
     count++;
+
     ptr = ptr + strlen(params + ptr) + 1;
   }
 
@@ -42,6 +44,9 @@ static int macros_parse_token(struct _asm_context *asm_context, char *token, int
   while(1)
   {
     ch = tokens_get_char(asm_context);
+
+    if (ch == '\t') { ch = ' '; }
+
     if (ch == ' ')
     {
       if (ptr == 0) continue;
@@ -83,11 +88,19 @@ static int macros_parse_token(struct _asm_context *asm_context, char *token, int
   return 0;
 }
 
+// Note to self: This is not the best way to take care of this.
 static int check_endm(char *macro, int ptr)
 {
   ptr--;
 
-  while(ptr > 0 && macro[ptr] != '\n')
+  // Ignore white space at start of the line
+  while(ptr > 0 && (macro[ptr] == ' ' || macro[ptr] == '\t'))
+  {
+    ptr--;
+  }
+
+  // Ignore white space before a possible .endm
+  while(ptr > 0 && !(macro[ptr] == '\n' || macro[ptr] == ' ' || macro[ptr] == '\t'))
   {
     ptr--;
   }
@@ -153,7 +166,7 @@ int macros_append(struct _asm_context *asm_context, char *name, char *value, int
     return -1;
   }
 
-  // If we have no pool, add one.
+  // If there is no pool, add one.
   if (memory_pool == NULL)
   {
     memory_pool = memory_pool_add((struct _naken_heap *)macros, MACROS_HEAP_SIZE);
@@ -188,7 +201,7 @@ int macros_append(struct _asm_context *asm_context, char *name, char *value, int
   memory_pool->ptr += name_len + value_len + sizeof(struct _macro_data);
 
   return 0;
-} 
+}
 
 void macros_lock(struct _macros *macros)
 {
@@ -262,46 +275,55 @@ int macros_iterate(struct _macros *macros, struct _macros_iter *iter)
   return -1;
 }
 
-int macros_print(struct _macros *macros)
+int macros_print(struct _macros *macros, FILE *out)
 {
   struct _macros_iter iter;
 
   memset(&iter, 0, sizeof(iter));
 
-  printf("%18s %s\n", "NAME", "VALUE");
+  fprintf(out, "%18s %s\n", "NAME", "VALUE");
 
   while(macros_iterate(macros, &iter) != -1)
   {
     if (iter.param_count == 0)
     {
-      printf("%30s=", iter.name);
+      fprintf(out, "%30s=", iter.name);
     }
       else
     {
       int n;
 
-      printf("%30s(", iter.name);
+      fprintf(out, "%30s(", iter.name);
+
       for (n = 0; n < iter.param_count; n++)
       {
-        if (n != 0) { printf(","); }
-        printf("{%d}", n + 1);
+        if (n != 0) { fprintf(out, ","); }
+        fprintf(out, "{%d}", n + 1);
       }
-      printf(")=");
+      fprintf(out, ")=");
     }
 
     char *value = iter.value;
+
     while (*value != 0)
     {
-      if (*value < 10) { printf("{%d}", *value); }
-      else { printf("%c", *value); }
+      if (*value == 1)
+      {
+        value++;
+        fprintf(out, "{%d}", *value);
+      }
+      else
+      {
+        fprintf(out, "%c", *value);
+      }
 
       value++;
     }
 
-    printf("\n");
+    fprintf(out, "\n");
   }
 
-  printf("Total %d.\n\n", iter.count);
+  fprintf(out, "Total %d.\n\n", iter.count);
 
   return 0;
 }
@@ -376,6 +398,7 @@ printf("debug> macros_get_char() tokens_get_char(?) ungetc %d %d '%c'\n", asm_co
 void macros_strip(char *macro)
 {
   char *s = macro;
+
   // Remove ; and // comments
   while (*s != 0)
   {
@@ -385,16 +408,6 @@ void macros_strip(char *macro)
   }
 
   if (s != macro) { s--; }
-
-#if 0
-  // Trim spaces from end of macro
-  while (s != macro)
-  {
-    if (*s != ' ') break;
-    *s = 0;
-    s--;
-  }
-#endif
 }
 
 int macros_parse(struct _asm_context *asm_context, int macro_type)
@@ -407,7 +420,6 @@ int macros_parse(struct _asm_context *asm_context, int macro_type)
   int ptr = 0;
   int token_type;
   int ch;
-  int cont = 0;
   int parens = 0;
   int param_count = 0;
 
@@ -421,6 +433,7 @@ printf("debug> macros_parse() name=%s parens_flag=%d\n", name, parens);
 
   // Now pull any params out
   ptr = 0;
+
   if (parens != 0)
   {
     while(1)
@@ -438,10 +451,17 @@ printf("debug> macros_parse() param %s\n", token);
 
       param_count++;
 
+      if (param_count > 255)
+      {
+        print_error("Error: Too many macro parameters", asm_context);
+        return -1;
+      }
+
       int len = strlen(token);
+
       if (ptr + len + 2 > 1024)
       {
-        print_error("Macro with too long parameter list\n", asm_context);
+        print_error("Error: Macro with too long parameter list", asm_context);
         return -1;
       }
 
@@ -449,15 +469,15 @@ printf("debug> macros_parse() param %s\n", token);
       ptr = ptr + len + 1;
 
       token_type = tokens_get(asm_context, token, TOKENLEN);
-      if (IS_TOKEN(token,','))
-      {
-      }
-        else
+
+      // End of parameter list
       if (IS_TOKEN(token,')'))
       {
         break;
       }
-        else
+
+      // Make sure there is a comma between parameters
+      if (IS_NOT_TOKEN(token,','))
       {
         print_error("Expected ',' or ')'", asm_context);
         return -1;
@@ -472,6 +492,7 @@ printf("debug> macros_parse() param %s\n", token);
     // Fixing where the user could have extra crap at the end of the macro
     // line.
     token_type = tokens_get(asm_context, token, TOKENLEN);
+
     if (token_type != TOKEN_EOL)
     {
       print_error_unexp(token, asm_context);
@@ -493,6 +514,7 @@ printf("debug> macros_parse() param count=%d\n", param_count);
   {
     ch = tokens_get_char(asm_context);
 
+    // Tabs :(
     if (ch == '\t') { ch = ' '; }
 
     if (name_test == NULL)
@@ -504,11 +526,12 @@ printf("debug> macros_parse() param count=%d\n", param_count);
     }
       else
     if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-          (ch >= '0' && ch <= '9')))
+          (ch >= '0' && ch <= '9') || ch == '_'))
     {
       if (name_test != NULL)
       {
         macro[ptr] = 0;
+
         int index = get_param_index(params,name_test);
 
 #ifdef DEBUG
@@ -518,8 +541,12 @@ printf("debug> macros_parse() name_test='%s' %d\n", name_test, index);
         if (index != 0)
         {
           ptr = name_test - macro;
+
+          // A paramter in the macro text is chr(1), index
+          macro[ptr++] = 1;
           macro[ptr++] = index;
         }
+
         name_test = NULL;
       }
     }
@@ -533,7 +560,8 @@ printf("debug> macros_parse() name_test='%s' %d\n", name_test, index);
       while(1)
       {
         ch = tokens_get_char(asm_context);
-        if (ch == '\n' || ch == EOF) break;
+        if (ch == '\t') { ch = ' '; }
+        if (ch == '\n' || ch == EOF) { break; }
       }
 
       while(ptr > 0)
@@ -543,13 +571,27 @@ printf("debug> macros_parse() name_test='%s' %d\n", name_test, index);
       }
     }
 
-    if (ch == '\r') continue;
-    if (ch == ' ' && (ptr == 0 || cont != 0)) continue;
-    if (ch == '\\' && cont == 0)
+    if (ch == '\r') { continue; }
+    if (ch == ' ' && ptr == 0) { continue; }
+
+    if (ch == '\\')
     {
       if (macro_type == IS_DEFINE)
       {
-        cont = 1;
+        while(1)
+        {
+          ch = tokens_get_char(asm_context);
+          if (ch != '\r') { break; }
+        }
+
+        if (ch != '\n')
+        {
+          print_error("Error: Expected end-of_line", asm_context);
+          return -1;
+        }
+
+        asm_context->line++;
+
         continue;
       }
     }
@@ -560,13 +602,6 @@ printf("debug> macros_parse() name_test='%s' %d\n", name_test, index);
 
       if (macro_type == IS_DEFINE)
       {
-        if (cont == 1)
-        {
-          macro[ptr++] = ch;
-          cont = 2;
-          continue;
-        }
-
         break;
       }
         else
@@ -575,14 +610,6 @@ printf("debug> macros_parse() name_test='%s' %d\n", name_test, index);
         if (check_endm(macro, ptr) == 1) { break; }
       }
     }
-
-    if (cont == 1)
-    {
-      printf("Parse error: Expecting end-of-line on line %d\n", asm_context->line);
-      return -1;
-    }
-
-    cont = 0;
 
     if (ch == '*' && ptr > 0 && macro[ptr-1] == '/')
     {
@@ -625,6 +652,8 @@ char *macros_expand_params(struct _asm_context *asm_context, char *define, int p
 
   ch = tokens_get_char(asm_context);
 
+  if (ch == '\t') { ch = ' '; }
+
   if (ch != '(')
   {
     print_error("Macro expects params", asm_context);
@@ -638,15 +667,21 @@ char *macros_expand_params(struct _asm_context *asm_context, char *define, int p
   while(1)
   {
     ch = tokens_get_char(asm_context);
-    if (ch == '\r') continue;
+
+    if (ch == '\t') { ch = ' '; }
+    if (ch == '\r') { continue; }
+    // skip whitespace immediately after opening parenthesis or a comma
+    if ((ch == ' ' || ch == '\t') && (ptr == 0 || params[ptr-1] == 0)) { continue; }
     if (ch == '"') { in_string = in_string ^ 1; }
-    if (ch == ')' && in_string == 0) break;
+    if (ch == ')' && in_string == 0) { break; }
+
     if (ch == '\n' || ch == EOF)
     {
       print_error("Macro expects ')'", asm_context);
       return NULL;
     }
-    if (ch == ',')
+
+    if (ch == ',' && !in_string)
     {
       params[ptr++] = 0;
       params_ptr[++count] = ptr;
@@ -658,6 +693,7 @@ char *macros_expand_params(struct _asm_context *asm_context, char *define, int p
 
   params[ptr++] = 0;
   count++;
+
   if (count != param_count)
   {
     printf("Error: Macro expects %d params, but got only %d at %s:%d.\n",
@@ -678,9 +714,12 @@ for (n = 0; n < count; n++)
 
   while(*define != 0)
   {
-    if (*define < 10)
+    if (*define == 1)
     {
+      define++;
+
       strcpy(asm_context->def_param_stack_data + ptr, params + params_ptr[((int)*define)-1]);
+
       while(*(asm_context->def_param_stack_data + ptr) != 0) { ptr++; }
     }
     else
@@ -700,6 +739,7 @@ for (n = 0; n < count; n++)
 #ifdef DEBUG
 printf("debug>   ptr=%d\n", ptr);
 #endif
+
   asm_context->def_param_stack_data[ptr++] = 0;
 
 #ifdef DEBUG
@@ -724,6 +764,7 @@ printf("debug> macros_strip_comment()\n");
   while(1)
   {
     ch = tokens_get_char(asm_context);
+    if (ch == '\t') { ch = ' '; }
     if (ch == EOF) break;
     if (ch == '\n') asm_context->line++;
     if (ch == '/' && last == '*') { break; }

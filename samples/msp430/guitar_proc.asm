@@ -11,12 +11,12 @@
 
 .include "msp430x2xx.inc"
 
-  org 0xf800
+.org 0xf800
 start:
   ;; Turn off watchdog
   mov.w #0x5a80, &WDTCTL
 
-  ;; Please don't interrupt me
+  ;; Interrupts off
   dint
 
   ;; Set up stack pointer
@@ -48,7 +48,7 @@ start:
   mov.w #CCIE, &TACCTL0
   mov.w #0, &TACCTL1
 
-  ;; Okay, I can be interrupted now
+  ;; Interrupts on
   eint
 
 main:
@@ -97,7 +97,7 @@ spi_interrupt:
   ;; shouldn't happen
   reti
 
-  org 0xffe8
+.org 0xffe8
 vectors:
   dw spi_interrupt
   dw 0

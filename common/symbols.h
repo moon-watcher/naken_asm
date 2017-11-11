@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -31,6 +31,7 @@ struct _symbols
   struct _memory_pool *memory_pool;
   uint8_t locked : 1;
   uint8_t in_scope : 1;
+  uint8_t debug : 1;
   uint32_t current_scope;
 };
 
@@ -55,10 +56,11 @@ int symbols_export(struct _symbols *symbols, char *name);
 void symbols_lock(struct _symbols *symbols);
 int symbols_lookup(struct _symbols *symbols, char *name, uint32_t *address);
 int symbols_iterate(struct _symbols *symbols, struct _symbols_iter *iter);
-int symbols_print(struct _symbols *symbols);
+int symbols_print(struct _symbols *symbols, FILE *out);
 int symbols_count(struct _symbols *symbols);
 int symbols_export_count(struct _symbols *symbols);
 int symbols_scope_start(struct _symbols *symbols);
+int symbols_scope_reset(struct _symbols *symbols);
 int symbols_scope_end(struct _symbols *symbols);
 
 #endif

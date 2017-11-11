@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -22,6 +22,8 @@ int parse_dc(struct _asm_context *asm_context);
 int parse_dq(struct _asm_context *asm_context);
 int parse_ds(struct _asm_context *asm_context, int size);
 int parse_resb(struct _asm_context *asm_context, int size);
+int parse_align_bits(struct _asm_context *asm_context);
+int parse_align_bytes(struct _asm_context *asm_context);
 
 #endif
 

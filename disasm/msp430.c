@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -22,9 +22,9 @@
 
 static char *regs[] = { "PC", "SP", "SR", "CG", "r4", "r5", "r6", "r7", "r8",
                         "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
-static char *rpt[] = { "rptc", "rptz" };
+//static char *rpt[] = { "rptc", "rptz" };
 
-// FIXME - let's move this somewhee more sane
+// FIXME - Move this somewhere else
 int get_register_msp430(char *token)
 {
   if (token[0] == 'r' || token[0] == 'R')
@@ -41,10 +41,10 @@ int get_register_msp430(char *token)
     }
   }
 
-  if (strcasecmp(token, "pc") == 0) return 0;
-  if (strcasecmp(token, "sp") == 0) return 1;
-  if (strcasecmp(token, "sr") == 0) return 2;
-  if (strcasecmp(token, "cg") == 0) return 3;
+  if (strcasecmp(token, "pc") == 0) { return 0; }
+  if (strcasecmp(token, "sp") == 0) { return 1; }
+  if (strcasecmp(token, "sr") == 0) { return 2; }
+  if (strcasecmp(token, "cg") == 0) { return 3; }
 
   return -1;
 }
@@ -61,18 +61,33 @@ static int get_source_reg(struct _memory *memory, uint32_t address, int reg, int
   if (reg == 0)
   {
     if (As == 0)
-    { strcat(reg_str, regs[reg]); }
+    {
+      strcat(reg_str, regs[reg]);
+    }
       else
     if (As == 1)
     {
-      uint16_t a = (READ_RAM(address + 3) << 8) | READ_RAM(address + 2);
+      int32_t a = (READ_RAM(address + 3) << 8) | READ_RAM(address + 2);
       count += 2;
+
+      if (prefix == 0xffff)
+      {
+        if ((a & 0x8000) != 0) { a |= 0xffff0000; }
+      }
+        else
+      {
+        a |= extra;
+        if ((a & 0x80000) != 0) { a |= 0xfff00000; }
+      }
+
       a = a + (address + count);
-      sprintf(reg_str, "0x%04x", a | extra);
+      sprintf(reg_str, "0x%04x", a);
     }
       else
     if (As == 2)
-    { strcpy(reg_str, "@PC"); }
+    {
+      strcpy(reg_str, "@PC");
+    }
       else
     if (As == 3)
     {
@@ -88,7 +103,9 @@ static int get_source_reg(struct _memory *memory, uint32_t address, int reg, int
   if (reg == 2)
   {
     if (As == 0)
-    { strcat(reg_str, regs[reg]); }
+    {
+      strcat(reg_str, regs[reg]);
+    }
       else
     if (As == 1)
     {
@@ -98,10 +115,14 @@ static int get_source_reg(struct _memory *memory, uint32_t address, int reg, int
     }
       else
     if (As == 2)
-    { strcat(reg_str, "#4"); }
+    {
+      strcat(reg_str, "#4");
+    }
       else
     if (As == 3)
-    { strcat(reg_str, "#8"); }
+    {
+      strcat(reg_str, "#8");
+    }
   }
     else
   if (reg == 3)
@@ -127,9 +148,20 @@ static int get_source_reg(struct _memory *memory, uint32_t address, int reg, int
       else
     if (As == 1)
     {
-      uint16_t a = (READ_RAM(address + 3) << 8) | READ_RAM(address + 2);
+      int32_t a = (READ_RAM(address + 3) << 8) | READ_RAM(address + 2);
       count += 2;
-      sprintf(reg_str, "0x%x(%s)", a | extra, regs[reg]);
+
+      if (prefix == 0xffff)
+      {
+        if ((a & 0x8000) != 0) { a |= 0xffff0000; }
+      }
+        else
+      {
+        a |= extra;
+        if ((a & 0x80000) != 0) { a |= 0xfff00000; }
+      }
+
+      sprintf(reg_str, "%d(%s)", a, regs[reg]);
     }
       else
     if (As == 2)
@@ -157,21 +189,36 @@ static int get_dest_reg(struct _memory *memory, uint32_t address, int reg, int A
   if (reg == 0)
   {
     if (Ad == 0)
-    { strcat(reg_str, regs[reg]); }
+    {
+      strcat(reg_str, regs[reg]);
+    }
       else
     if (Ad == 1)
     {
-      uint16_t  a = (READ_RAM(address + count + 3) << 8) | READ_RAM(address + (count + 2));
+      int32_t a = (READ_RAM(address + count + 3) << 8) | READ_RAM(address + (count + 2));
       count += 2;
+
+      if (prefix == 0xffff)
+      {
+        if ((a & 0x8000) != 0) { a |= 0xffff0000; }
+      }
+        else
+      {
+        a |= extra;
+        if ((a & 0x80000) != 0) { a |= 0xfff00000; }
+      }
+
       a = a + (address + count);
-      sprintf(reg_str, "0x%04x", a | extra);
+      sprintf(reg_str, "0x%04x", a);
     }
   }
     else
   if (reg == 2)
   {
     if (Ad == 0)
-    { strcat(reg_str, regs[reg]); }
+    {
+      strcat(reg_str, regs[reg]);
+    }
       else
     if (Ad == 1)
     {
@@ -194,9 +241,20 @@ static int get_dest_reg(struct _memory *memory, uint32_t address, int reg, int A
       else
     if (Ad == 1)
     {
-      uint16_t a = (READ_RAM(address + count + 3) << 8)|READ_RAM(address + count + 2);
+      int32_t a = (READ_RAM(address + count + 3) << 8)|READ_RAM(address + count + 2);
       count += 2;
-      sprintf(reg_str, "0x%x(%s)", a|extra, regs[reg]);
+
+      if (prefix == 0xffff)
+      {
+        if ((a & 0x8000) != 0) { a |= 0xffff0000; }
+      }
+        else
+      {
+        a |= extra;
+        if ((a & 0x80000) != 0) { a |= 0xfff00000; }
+      }
+
+      sprintf(reg_str, "%d(%s)", a, regs[reg]);
     }
   }
 
@@ -221,13 +279,21 @@ static int one_operand(struct _memory *memory, uint32_t address, char *instructi
   {
     if (As == 0)
     {
+#if 0
       char temp[64];
       int r = (prefix >> 8) & 1;
+
       if ((prefix & 0x0080) == 0)
-      { sprintf(temp, "%s #%d %s", rpt[r], (prefix & 0xf) + 1, instruction); }
+      {
+        sprintf(temp, "%s #%d %s", rpt[r], (prefix & 0xf) + 1, instruction);
+      }
         else
-      { sprintf(temp, "%s r%d %s", rpt[r], prefix & 0xf, instruction); }
+      {
+        sprintf(temp, "%s r%d %s", rpt[r], prefix & 0xf, instruction);
+      }
+
       strcpy(instruction, temp);
+#endif
     }
       else
     {
@@ -332,13 +398,21 @@ static int two_operand(struct _memory *memory, uint32_t address, char *instructi
   {
     if (Ad == 0 && (As == 0 || src == 3 || (src == 2 && As != 1)) )
     {
+#if 0
       char temp[64];
       int r = (prefix >> 8) & 1;
+
       if ((prefix & 0x0080) == 0)
-      { sprintf(temp, "%s #%d %s", rpt[r], (prefix & 0xf) + 1, instruction); }
+      {
+        sprintf(temp, "%s #%d %s", rpt[r], (prefix & 0xf) + 1, instruction);
+      }
         else
-      { sprintf(temp, "%s r%d %s", rpt[r], prefix & 0xf, instruction); }
+      {
+        sprintf(temp, "%s r%d %s", rpt[r], prefix & 0xf, instruction);
+      }
+
       strcpy(instruction, temp);
+#endif
     }
       else
     {
@@ -349,9 +423,15 @@ static int two_operand(struct _memory *memory, uint32_t address, char *instructi
   }
 
   if ((opcode & 0x0040) == 0)
-  { strcpy(ext, ".w"); bw = 0; }
+  {
+    strcpy(ext, ".w");
+    bw = 0;
+  }
     else
-  { strcpy(ext, ".b"); bw = 1; }
+  {
+    strcpy(ext, ".b");
+    bw = 1;
+  }
 
   if (prefix == 0xffff)
   {
@@ -363,8 +443,11 @@ static int two_operand(struct _memory *memory, uint32_t address, char *instructi
     if (opcode == 0x4130)
     { sprintf(instruction, "ret   --  %s", instr); }
       else
-    if ((opcode & 0xff30) == 0x4130)
+    if ((opcode & 0xffb0) == 0x4130)
     { sprintf(instruction, "pop.%c r%d   --  %s", bw == 0 ? 'w':'b', opcode & 0x000f, instr); }
+      else
+    if ((opcode & 0xffb0) == 0x41b0)
+    { sprintf(instruction, "pop.%c %d(r%d)   --  %s", bw == 0 ? 'w':'b', (int16_t)READ_RAM16(address + 2), opcode & 0x000f, instr); }
       else
     if (opcode == 0xc312)
     { sprintf(instruction, "clrc  --  %s", instr); }
@@ -437,36 +520,36 @@ int get_cycle_count(uint16_t opcode)
 
     if (o == 5) // CALL
     {
-      if (As == 1) return 5;        // x(Rn), EDE, &EDE
-      if (As == 2) return 4;        // @Rn
+      if (As == 1) { return 5; }    // x(Rn), EDE, &EDE
+      if (As == 2) { return 4; }    // @Rn
       if (As == 3)
       {
         if (src_reg == 0) return 5; // #value
         return 5;                   // @Rn+
       }
 
-      return 4;                   // Rn
+      return 4;                     // Rn
     }
 
     if (o == 4) // PUSH
     {
-      if (As == 1) return 5;        // x(Rn), EDE, &EDE
-      if (As == 2) return 4;        // @Rn
+      if (As == 1) { return 5; }    // x(Rn), EDE, &EDE
+      if (As == 2) { return 4; }    // @Rn
       if (As == 3)
       {
         if (src_reg == 0) return 4; // #value
         return 5;                   // @Rn+
       }
 
-      return 3;                   // Rn
+      return 3;                     // Rn
     }
 
     // RRA, RRC, SWPB, SXT
-    if (As == 1) return 4;        // x(Rn), EDE, &EDE
-    if (As == 2) return 3;        // @Rn
+    if (As == 1) { return 4; }      // x(Rn), EDE, &EDE
+    if (As == 2) { return 3; }      // @Rn
     if (As == 3)
     {
-      if (src_reg == 0) return -1; // #value
+      if (src_reg == 0) { return -1; } // #value
       return 3;                    // @Rn+
     }
 
@@ -489,32 +572,32 @@ int get_cycle_count(uint16_t opcode)
     if (src_reg == 3 || (src_reg == 2 && (As & 2) == 2)) { As = 0; }
     if (dst_reg == 3) { Ad = 0; }
 
-    if ((opcode >> 12) < 4) return -1;
+    if ((opcode >> 12) < 4) { return -1; }
 
     // Cycle counts
     if (As == 1) //Src EDE, &EDE, x(Rn)
     {
-      if (Ad == 1) return 6; // Dest x(Rn) and TONI and &TONI
+      if (Ad == 1) { return 6; } // Dest x(Rn) and TONI and &TONI
       return 3;  // Dest
     }
       else
     if (As == 3)  // #value and @Rn+
     {
-      if (dst_reg == 0) return 3;   // Dest PC
-      if (Ad == 0) return 2;        // Dest Rm
-      return 5;                     // Dest x(Rm), EDE, &EDE
+      if (dst_reg == 0) { return 3; } // Dest PC
+      if (Ad == 0) { return 2; }      // Dest Rm
+      return 5;                       // Dest x(Rm), EDE, &EDE
     }
       else
     if (As  ==  2)  // @Rn
     {
-      if (dst_reg  ==  0) return 2;   // Dest PC
-      if (Ad  ==  0) return 2;        // Dest Rm
+      if (dst_reg  ==  0) { return 2; } // Dest PC
+      if (Ad  ==  0) { return 2; }    // Dest Rm
       return 5;                       // Dest x(Rm), EDE, &EDE
     }
       else     // Rn
     {
-      if (dst_reg == 0) return 2;   // Dest PC
-      if (Ad == 0) return 1;        // Dest Rm
+      if (dst_reg == 0) { return 2; } // Dest PC
+      if (Ad == 0) { return 1; }    // Dest Rm
       return 4;                     // Dest x(Rm), EDE, &EDE
     }
   }
@@ -536,6 +619,12 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
   *cycles_min = get_cycle_count(opcode);
   *cycles_max = *cycles_min;
 
+  if (opcode == 0x0110)
+  {
+    sprintf(instruction, "reta  --  mova @SP+, PC");
+    return 2;
+  }
+
   // 20 bit prefix to 16 bit instructions 
   if ((opcode & 0xf830) == 0x1800)
   {
@@ -548,7 +637,10 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
   n = 0;
   while(table_msp430[n].instr != NULL)
   {
+    if (table_msp430[n].version == VERSION_MSP430X_EXT) { n++; continue; }
+
     char mode[] = { 'a','w' };
+
     if ((opcode & table_msp430[n].mask) == table_msp430[n].opcode)
     {
       switch(table_msp430[n].type)
@@ -557,8 +649,11 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
           strcpy(instruction, table_msp430[n].instr);
           break;
         case OP_ONE_OPERAND:
+        case OP_ONE_OPERAND_W:
+        case OP_ONE_OPERAND_X:
           strcpy(instruction, table_msp430[n].instr);
           count += one_operand(memory, address, instruction, opcode, prefix);
+          prefix = 0xffff;
           break;
         case OP_JUMP:
           strcpy(instruction, table_msp430[n].instr);
@@ -567,28 +662,43 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
         case OP_TWO_OPERAND:
           strcpy(instruction, table_msp430[n].instr);
           count += two_operand(memory, address, instruction, opcode, prefix);
+          prefix = 0xffff;
           break;
         case OP_MOVA_AT_REG_REG:
           src = (opcode >> 8) & 0xf;
           dst = opcode & 0xf;
           sprintf(instruction, "mova @%s, %s", regs[src], regs[dst]);
-          return 2;
+          count += 2;
+          break;
         case OP_MOVA_AT_REG_PLUS_REG:
           src = (opcode>>8) & 0xf;
           dst = opcode&0xf;
           sprintf(instruction, "mova @%s+, %s", regs[src], regs[dst]);
-          return 2;
+          count += 2;
+          break;
         case OP_MOVA_ABS20_REG:
           num = (((opcode >> 8) & 0xf) << 16)|(READ_RAM16(address + 2));
           dst = opcode & 0xf;
           sprintf(instruction, "mova &0x%x, %s", num, regs[dst]);
-          return 4;
-        case OP_MOVA_INDIRECT_REG:
+          count += 4;
+          break;
+        case OP_MOVA_INDEXED_REG:
           num = READ_RAM16(address + 2);
           src = (opcode >> 8) & 0xf;
           dst = opcode & 0xf;
-          sprintf(instruction, "mova 0x%x(%s), %s", num, regs[src], regs[dst]);
-          return 4;
+
+          if (src != 0)
+          {
+            sprintf(instruction, "mova %d(%s), %s",
+              (int16_t)num, regs[src], regs[dst]);
+          }
+            else
+          {
+            int symbolic = (address + 2) + (int16_t)num;
+            sprintf(instruction, "mova 0x%04x, %s", symbolic, regs[dst]);
+          }
+          count += 4;
+          break;
         case OP_SHIFT20:
           num = ((opcode >> 10) & 0x3) + 1;
           wa = (opcode >> 4) & 0x1;
@@ -596,28 +706,33 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
           *cycles_min = num;
           *cycles_max = num;
           sprintf(instruction, "%s.%c #%d, %s", table_msp430[n].instr, mode[wa], num, regs[dst]);
-          return 2;
+          count += 2;
+          break;
         case OP_MOVA_REG_ABS:
           num = ((opcode & 0xf) << 16) | READ_RAM16(address + 2);
           src = (opcode >> 8) & 0xf;
           sprintf(instruction, "mova %s, &0x%x", regs[src], num);
-          return 4;
-        case OP_MOVA_REG_INDIRECT:
+          count += 4;
+          break;
+        case OP_MOVA_REG_INDEXED:
           num = READ_RAM16(address+2);
           src = (opcode >> 8) & 0xf;
           dst = opcode & 0xf;
-          sprintf(instruction, "mova %s, 0x%x(%s)", regs[src], num, regs[dst]);
-          return 4;
+          sprintf(instruction, "mova %s, %d(%s)", regs[src], (int16_t)num, regs[dst]);
+          count += 4;
+          break;
         case OP_IMMEDIATE_REG:
           num = ((opcode&0x0f00)<<8)|READ_RAM16(address+2);
           dst = opcode & 0xf;
           sprintf(instruction, "%s #0x%x, %s", table_msp430[n].instr, num, regs[dst]);
-          return 4;
+          count += 4;
+          break;
         case OP_REG_REG:
           src = (opcode >> 8) & 0xf;
           dst = opcode & 0xf;
           sprintf(instruction, "%s %s, %s", table_msp430[n].instr, regs[src], regs[dst]);
-          return 2;
+          count += 2;
+          break;
         case OP_CALLA_SOURCE:
         {
           char temp[32];
@@ -629,11 +744,11 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
             if (dst == 0)
             {
               int16_t offset = READ_RAM16(address + 2);
-              sprintf(temp, "0x%x(%s) -- 0x%x", READ_RAM16(address + 2), regs[dst], (address + 4) + offset);
+              sprintf(temp, "%d(%s) -- 0x%x", (int16_t)(READ_RAM16(address + 2)), regs[dst], (address + 4) + offset);
             }
               else
             {
-              sprintf(temp, "0x%x(%s)", READ_RAM16(address + 2), regs[dst]);
+              sprintf(temp, "%d(%s)", (int16_t)(READ_RAM16(address + 2)), regs[dst]);
             }
             *cycles_min = 6;
             if (dst == 1) (*cycles_min)++; // if Rn=SP increment by 1
@@ -642,27 +757,31 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
           else if (as == 3) { sprintf(temp, "@%s+", regs[dst]); *cycles_min = 5; }
           sprintf(instruction, "%s %s", table_msp430[n].instr, temp);
           *cycles_max = *cycles_min;
-          return (as == 1) ? 4:2;
+          count += (as == 1) ? 4 : 2;
+          break;
         }
         case OP_CALLA_ABS20:
           num = ((opcode & 0xf) << 16) | READ_RAM16(address + 2);
           sprintf(instruction, "%s &0x%x", table_msp430[n].instr, num);
           *cycles_min = 6;
           *cycles_max = *cycles_min;
-          return 4;
+          count += 4;
+          break;
         case OP_CALLA_INDIRECT_PC:
           num = ((opcode & 0xf) << 16) | READ_RAM16(address + 2);
           if ((num & 0x80000) != 0) { num |= 0xfff0000; }
           sprintf(instruction, "%s 0x%x(%d)", table_msp430[n].instr, address + 4 + num, num);
           *cycles_min = 6;
           *cycles_max = *cycles_min;
-          return 4;
+          count += 4;
+          break;
         case OP_CALLA_IMMEDIATE:
           num = ((opcode & 0xf) << 16) | READ_RAM16(address + 2);
           sprintf(instruction, "%s #0x%x", table_msp430[n].instr, num);
           *cycles_min = 4;
           *cycles_max = *cycles_min;
-          return 4;
+          count += 4;
+          break;
         case OP_PUSH:
           src = opcode & 0xf;
           num = (opcode >> 4) & 0xf;
@@ -670,7 +789,8 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
           sprintf(instruction, "pushm.%c #%d, %s", mode[wa], num+1, regs[src]);
           *cycles_min = 2 + (num + 1) * (wa + 1);
           *cycles_max = *cycles_min;
-          return 2;
+          count += 2;
+          break;
         case OP_POP:
           dst = opcode & 0xf;
           num = (opcode >> 4) & 0xf;
@@ -678,7 +798,8 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
           sprintf(instruction, "popm.%c #%d, %s", mode[wa], num+1, regs[dst]);
           *cycles_min = 2 + (num + 1) * (wa + 1);
           *cycles_max = *cycles_min;
-          return 2;
+          count += 2;
+          break;
         default:
           sprintf(instruction, "%s << wtf", table_msp430[n].instr);
           break;
@@ -692,12 +813,35 @@ int disasm_msp430(struct _memory *memory, uint32_t address, char *instruction, i
 
   if (table_msp430[n].instr == NULL) { strcpy(instruction, "???"); }
 
+  if (prefix != 0xffff)
+  {
+    char rpt[128];
+    char zc = (((prefix >> 8) & 1) == 1) ? 'z' : 'c';
+    int n = prefix & 0xf;
+
+    if ((prefix & 0xfeb0) == 0x1800)
+    {
+      snprintf(rpt, sizeof(rpt), "rpt%c #%d, %s", zc, n + 1, instruction);
+      strcpy(instruction, rpt);
+    }
+      else
+    if ((prefix & 0xfeb0) == 0x1880)
+    {
+      snprintf(rpt, sizeof(rpt), "rpt%c r%d, %s", zc, n, instruction);
+      strcpy(instruction, rpt);
+    }
+
+    *cycles_min = -1;
+    *cycles_max = -1;
+  }
+
   return count;
 }
 
 int disasm_msp430x(struct _memory *memory, uint32_t address, char *instruction, int *cycles_min, int *cycles_max)
 {
   uint16_t opcode = READ_RAM16(address);
+
   if (opcode == 0x1300)
   {
     sprintf(instruction, "reti");
@@ -765,8 +909,8 @@ static void disasm_range_msp430_both(struct _memory *memory, int start, int end,
                         "Reset/Watchdog/Flash" };
   char instruction[128];
   int vectors_flag = 0;
-  int cycles_min = 0,cycles_max = 0;
-  int num,count;
+  int cycles_min = 0, cycles_max = 0;
+  int num, count;
 
   printf("\n");
 
@@ -793,7 +937,8 @@ static void disasm_range_msp430_both(struct _memory *memory, int start, int end,
         else
       {
         printf("0x%04x: 0x%04x  Vector %2d {%s}\n", start, num, (start - 0xffe0) / 2, vectors[(start - 0xffe0) / 2]);
-        start+=2;
+
+        start += 2;
         continue;
       }
     }

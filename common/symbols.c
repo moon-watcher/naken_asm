@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -22,6 +22,7 @@ int symbols_init(struct _symbols *symbols)
   symbols->memory_pool = NULL;
   symbols->locked = 0;
   symbols->in_scope = 0;
+  symbols->debug = 0;
   symbols->current_scope = 0;
 
   return 0;
@@ -95,12 +96,23 @@ int symbols_append(struct _symbols *symbols, char *name, uint32_t address)
   struct _memory_pool *memory_pool = symbols->memory_pool;
   struct _symbols_data *symbols_data;
 
-  if (symbols->locked == 1) return 0;
+#ifdef DEBUG
+//printf("symbols_append(%s, %d);\n", name, address);
+#endif
+
+  if (symbols->locked == 1) { return 0; }
 
   symbols_data = symbols_find(symbols, name);
 
   if (symbols_data != NULL)
   {
+    // For unit test.  Probably a better way to do this.
+    if (symbols->debug == 1)
+    {
+      symbols_data->address = address;
+      return 0;
+    }
+
     if (symbols->in_scope == 0 || symbols_data->scope == symbols->current_scope)
     {
       printf("Error: Label '%s' already defined.\n", name);
@@ -230,7 +242,7 @@ int symbols_iterate(struct _symbols *symbols, struct _symbols_iter *iter)
 {
   struct _memory_pool *memory_pool = symbols->memory_pool;
 
-  if (iter->end_flag == 1) return -1;
+  if (iter->end_flag == 1) { return -1; }
   if (iter->memory_pool == NULL)
   {
     iter->memory_pool = symbols->memory_pool;
@@ -262,20 +274,20 @@ int symbols_iterate(struct _symbols *symbols, struct _symbols_iter *iter)
   return -1;
 }
 
-int symbols_print(struct _symbols *symbols)
+int symbols_print(struct _symbols *symbols, FILE *out)
 {
   struct _symbols_iter iter;
 
   memset(&iter, 0, sizeof(iter));
 
-  printf("%30s ADDRESS\n", "LABEL");
+  fprintf(out, "%30s ADDRESS  SCOPE\n", "LABEL");
 
   while(symbols_iterate(symbols, &iter) != -1)
   {
-    printf("%30s %08x (%d) %d%s\n", iter.name, iter.address, iter.address, iter.scope, iter.flag_export == 1 ? " EXPORTED" : "");
+    fprintf(out, "%30s %08x %d%s\n", iter.name, iter.address, iter.scope, iter.flag_export == 1 ? " EXPORTED" : "");
   }
 
-  printf("Total %d.\n\n", iter.count);
+  fprintf(out, " -> Total symbols: %d\n\n", iter.count);
 
   return 0;
 }
@@ -335,6 +347,13 @@ int symbols_scope_start(struct _symbols *symbols)
 
   symbols->in_scope = 1;
   symbols->current_scope++;
+
+  return 0;
+}
+
+int symbols_scope_reset(struct _symbols *symbols)
+{
+  symbols->current_scope = 0;
 
   return 0;
 }

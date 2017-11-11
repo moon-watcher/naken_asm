@@ -12,6 +12,8 @@ default:
 	@mkdir -p build/prog
 	@$(MAKE) -C build
 
+all: default
+
 %.o: %.c *.h
 	$(CC) -c $*.c $(CFLAGS) $(LDFLAGS)
 
@@ -49,12 +51,13 @@ clean:
 	@rm -rf build/*.o build/*.a
 	@rm -rf build/asm build/disasm build/table build/common
 	@rm -rf build/simulate build/fileio build/prog
-	@rm -rf testing/unit/eval_expression/unit_test
-	@rm -rf testing/unit/eval_expression_ex/unit_test
-	@rm -rf testing/unit/data/data_test
-	@rm -rf testing/unit/var/var_test
-	@rm -rf testing/unit/tokens/tokens_test
-	@rm -rf testing/unit/memory/memory_test
+	@rm -rf tests/unit/eval_expression/unit_test
+	@rm -rf tests/unit/eval_expression_ex/unit_test
+	@rm -rf tests/unit/data/data_test
+	@rm -rf tests/unit/var/var_test
+	@rm -rf tests/symbol_address/symbol_address
+	@rm -rf tests/unit/tokens/tokens_test
+	@rm -rf tests/unit/memory/memory_test
 	@echo "Clean!"
 
 .PHONY: tests
@@ -65,9 +68,11 @@ tests:
 	@cd tests/unit/var && make && ./var_test && make clean
 	@cd tests/unit/data && make && ./data_test && make clean
 	@cd tests/unit/tokens && make && ./tokens_test && make clean
+	@cd tests/unit/macros && make && ./macro_test && make clean
 	@cd tests/unit/memory && make && ./memory_test && make clean
 	@cd tests/unit/symbols && make && ./symbols_test && make clean
 	@cd tests/disasm && make
+	@cd tests/symbol_address && make && ./symbol_address && make clean
 	@cd tests/comparison && make
 	@cd tests/other/directives && python test.py
 

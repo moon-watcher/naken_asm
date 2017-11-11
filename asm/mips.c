@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -19,6 +19,7 @@
 #include "common/assembler.h"
 #include "common/tokens.h"
 #include "common/eval_expression.h"
+#include "common/eval_expression_ex.h"
 #include "table/mips.h"
 
 enum
@@ -101,6 +102,7 @@ static int get_tregister(char *token)
   if (token[1] == 'k' && num >= 0 && num <= 1) { return 26 + num; }
   if (token[1] == 's' && num == 8) { return 30; }
 
+  if (strcasecmp(token, "$zero") == 0) { return 0; }
   if (strcasecmp(token, "$at") == 0) { return 1; }
   if (strcasecmp(token, "$gp") == 0) { return 28; }
   if (strcasecmp(token, "$sp") == 0) { return 29; }
@@ -392,6 +394,7 @@ static int check_for_pseudo_instruction(struct _asm_context *asm_context, struct
     *operand_count = 3;
   }
     else
+#if 0
   if ((strcmp(instr_case, "li") == 0 || strcmp(instr_case, "la") == 0) &&
       *operand_count == 2)
   {
@@ -415,6 +418,7 @@ static int check_for_pseudo_instruction(struct _asm_context *asm_context, struct
     return 8;
   }
     else
+#endif
   if (strcmp(instr_case, "nop") == 0 && *operand_count == 0)
   {
     strcpy(instr_case, "sll");
@@ -491,6 +495,138 @@ static int check_for_pseudo_instruction(struct _asm_context *asm_context, struct
     *operand_count = 2;
   }
 #endif
+
+  return 4;
+}
+
+static int get_operands_li(struct _asm_context *asm_context, struct _operand *operands, char *instr, char *instr_case)
+{
+  int operand_count = 0;
+  int optimize = 0;
+  uint32_t opcode;
+  int num;
+  int token_type;
+  char token[TOKENLEN];
+  struct _var var;
+  uint64_t temp;
+
+  do
+  {
+    token_type = tokens_get(asm_context, token, TOKENLEN);
+    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF)
+    {
+      print_error_unexp(token, asm_context);
+      return -1;
+    }
+
+    num = get_register_mips(token, &operands[operand_count]);
+    if (num == -1)
+    {
+      print_error_unexp(token, asm_context);
+      return -1;
+    }
+
+    operands[0].type = OPERAND_TREG;
+    operands[0].value = num;
+    operand_count++;
+
+    if (expect_token(asm_context, ',') == -1) { return -1; }
+
+    if (eval_expression_ex(asm_context, &var) != 0)
+    {
+      if (asm_context->pass == 2)
+      {
+        print_error_unexp(token, asm_context);
+        return -1;
+      }
+
+      eat_operand(asm_context);
+
+      //temp = var_get_int64(&var);
+
+      num = 0;
+    }
+      else
+    {
+      temp = var_get_int64(&var);
+      uint64_t mask = temp & 0xffffffff00000000ULL;
+
+      if (mask != 0xffffffff00000000ULL && mask != 0)
+      {
+        print_error_range("Constant", -0x80000000LL, 0xffffffff, asm_context);
+        return -1;
+      }
+
+      num = temp;
+
+      if ((num & 0xffff) == num)
+      {
+        optimize = 1;
+      }
+        else
+      if ((num & 0xffff0000) == num)
+      {
+        optimize = 2;
+      }
+    }
+
+    if (asm_context->pass == 1)
+    {
+      add_bin32(asm_context, optimize, IS_OPCODE);
+
+      if (optimize == 0)
+      {
+        add_bin32(asm_context, 0, IS_OPCODE);
+        return 8;
+      }
+
+      return 4;
+    }
+      else
+    {
+#if 0
+      if (optimize != memory_read(asm_context, asm_context->address))
+      {
+        print_error_internal(asm_context, __FILE__, __LINE__);
+        exit(1);
+      }
+#endif
+
+      optimize = memory_read(asm_context, asm_context->address);
+    }
+
+    operands[1].type = OPERAND_IMMEDIATE;
+    operands[1].value = num;
+
+    token_type = tokens_get(asm_context, token, TOKENLEN);
+    if (token_type != TOKEN_EOL && token_type != TOKEN_EOF)
+    {
+      print_error_unexp(token, asm_context);
+      return -1;
+    }
+  } while(0);
+
+  if (optimize == 0)
+  {
+    opcode = find_opcode("lui");
+    add_bin32(asm_context, opcode | (operands[0].value << 16) | ((operands[1].value >> 16) & 0xffff), IS_OPCODE);
+
+    opcode = find_opcode("ori");
+    add_bin32(asm_context, opcode | (operands[0].value << 21) |(operands[0].value << 16) | (operands[1].value & 0xffff), IS_OPCODE);
+
+    return 8;
+  }
+
+  if (optimize == 1)
+  {
+    opcode = find_opcode("ori");
+    add_bin32(asm_context, opcode | (operands[0].value << 16) | (operands[1].value & 0xffff), IS_OPCODE);
+  }
+    else
+  {
+    opcode = find_opcode("lui");
+    add_bin32(asm_context, opcode | (operands[0].value << 16) | ((operands[1].value >> 16) & 0xffff), IS_OPCODE);
+  }
 
   return 4;
 }
@@ -579,7 +715,7 @@ static int get_operands(struct _asm_context *asm_context, struct _operand *opera
       {
         operands[operand_count].type = OPERAND_ACC;
         break;
-      }    
+      }
 
       paren_flag = 0;
       inc_dec_flag = 0;
@@ -810,7 +946,14 @@ int parse_instruction_mips(struct _asm_context *asm_context, char *instr)
   lower_copy(instr_case, instr);
   memset(operands, 0, sizeof(operands));
 
-  operand_count = get_operands(asm_context, operands, instr, instr_case);
+  if (strcmp(instr_case, "li") == 0 || strcmp(instr_case, "la") == 0)
+  {
+    return get_operands_li(asm_context, operands, instr, instr_case);
+  }
+    else
+  {
+    operand_count = get_operands(asm_context, operands, instr, instr_case);
+  }
 
   if (operand_count < 0) { return -1; }
 
@@ -1657,13 +1800,13 @@ int parse_instruction_mips(struct _asm_context *asm_context, char *instr)
               break;
             case MIPS_OP_OFFSET_VBASE:
               if (operands[r].type != OPERAND_OFFSET_VBASE)
-              { 
+              {
                 print_error_illegal_operands(instr, asm_context);
                 return -1;
               }
 
               if (get_field_number(dest) == -1)
-              { 
+              {
                 print_error_illegal_operands(instr, asm_context);
                 return -1;
               }

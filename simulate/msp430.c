@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -28,7 +28,12 @@ Status: V SCG1 SCG0 OSCOFF CPUOFF GIE N Z C
 
 #define SHOW_STACK sp, memory_read_m(simulate->memory, sp+1), memory_read_m(simulate->memory, sp)
 #define READ_RAM(a) memory_read_m(simulate->memory, a)
-#define WRITE_RAM(a,b) memory_write_m(simulate->memory, a, b)
+#define WRITE_RAM(a,b) \
+  if (a == simulate->break_io) \
+  { \
+    exit(b); \
+  } \
+  memory_write_m(simulate->memory, a, b);
 
 #define GET_V() ((simulate_msp430->reg[2] >>  8) & 1)
 #define GET_SCG1() ((simulate_msp430->reg[2] >> 7) & 1)
@@ -132,50 +137,60 @@ static uint16_t get_data(struct _simulate *simulate, int reg, int As, int bw)
   if (reg == 3) // CG
   {
     if (As == 0)
-    { return 0; }
+    {
+      return 0;
+    }
       else
     if (As == 1)
-    { return 1; }
+    {
+      return 1;
+    }
       else
     if (As == 2)
-    { return 2; }
+    {
+      return 2;
+    }
       else
     if (As == 3)
     {
-      if (bw == 0)
-      { return 0xffff; }
-        else
-      { return 0xff; }
+      return (bw == 0) ? 0xffff : 0xff;
     }
   }
 
   if (As == 0) // Rn
   {
-    if (bw == 0)
-    { return simulate_msp430->reg[reg]; }
-      else
-    { return simulate_msp430->reg[reg] & 0xff; }
+    return (bw == 0) ?
+      simulate_msp430->reg[reg] : simulate_msp430->reg[reg] & 0xff;
   }
 
   if (reg == 2)
   {
     if (As == 1) // &LABEL
     {
-      int PC=simulate_msp430->reg[0];
-      uint16_t a=READ_RAM(PC) | (READ_RAM(PC+1) << 8);
+      int PC = simulate_msp430->reg[0];
+      uint16_t a = READ_RAM(PC) | (READ_RAM(PC+1) << 8);
 
       simulate_msp430->reg[0] += 2;
+
       if (bw == 0)
-      { return READ_RAM(a) | (READ_RAM(a+1) << 8); }
+      {
+        return READ_RAM(a) | (READ_RAM(a+1) << 8);
+      }
         else
-      { return READ_RAM(a); }
+      {
+        return READ_RAM(a);
+      }
     }
       else
     if (As == 2)
-    { return 4; }
+    {
+      return 4;
+    }
       else
     if (As == 3)
-    { return 8; }
+    {
+      return 8;
+    }
   }
 
   if (reg == 0) // PC
@@ -186,10 +201,8 @@ static uint16_t get_data(struct _simulate *simulate, int reg, int As, int bw)
       uint16_t a = READ_RAM(simulate_msp430->reg[0]) | (READ_RAM(simulate_msp430->reg[0] + 1) << 8);
 
       simulate_msp430->reg[0] += 2;
-      if (bw == 0)
-      { return a; }
-        else
-      { return a & 0xff; }
+
+      return (bw == 0) ? a : a & 0xff;
     }
   }
 
@@ -197,47 +210,64 @@ static uint16_t get_data(struct _simulate *simulate, int reg, int As, int bw)
   {
     uint16_t a = READ_RAM(simulate_msp430->reg[0]) | (READ_RAM(simulate_msp430->reg[0] + 1) << 8);
     uint16_t index = simulate_msp430->reg[reg] + ((int16_t)a);
+
     simulate_msp430->reg[0] += 2;
+
     if (bw == 0)
-    { return READ_RAM(index) | (READ_RAM(index+1) << 8); }
+    {
+      return READ_RAM(index) | (READ_RAM(index+1) << 8);
+    }
       else
-    { return READ_RAM(index); }
+    {
+      return READ_RAM(index);
+    }
   }
     else
-  if (As == 2) // @Rn
-  {
-    if (bw == 0)
-    { return READ_RAM(simulate_msp430->reg[reg]) | (READ_RAM(simulate_msp430->reg[reg] + 1) << 8); }
-      else
-    { return READ_RAM(simulate_msp430->reg[reg]); }
-  }
-    else
-  if (As == 3) // @Rn+
+  if (As == 2 || As == 3) // @Rn (mode 2) or @Rn+ (mode 3)
   {
     uint16_t index = simulate_msp430->reg[reg];
 
     if (bw == 0)
     {
-      simulate_msp430->reg[reg] += 2;
-      return READ_RAM(index) | (READ_RAM(index+1) << 8);
+      return READ_RAM(index) | (READ_RAM(index + 1) << 8);
     }
       else
     {
-      simulate_msp430->reg[reg] += 1;
-      return READ_RAM(index);
+      return READ_RAM(simulate_msp430->reg[reg]);
     }
   }
 
-  printf("Error: Unrecognized addressing mode\n");
+  printf("Error: Unrecognized source addressing mode %d\n", As);
 
   return 0;
 }
 
-static int put_data(struct _simulate *simulate, int PC, int reg, int Ad, int bw, uint32_t data)
+static void update_reg(struct _simulate *simulate, int reg, int mode, int bw)
 {
   struct _simulate_msp430 *simulate_msp430 = (struct _simulate_msp430 *)simulate->context;
 
-  if (Ad == 0) // Rn
+  if (reg == 0) { return; }
+  if (reg == 2) { return; }
+  if (reg == 3) { return; }
+
+  if (mode == 3) // @Rn+
+  {
+    if (bw == 0)
+    {
+      simulate_msp430->reg[reg] += 2;
+    }
+      else
+    {
+      simulate_msp430->reg[reg] += 1;
+    }
+  }
+}
+
+static int put_data(struct _simulate *simulate, int PC, int reg, int mode, int bw, uint32_t data)
+{
+  struct _simulate_msp430 *simulate_msp430 = (struct _simulate_msp430 *)simulate->context;
+
+  if (mode == 0) // Rn
   {
     if (bw == 0)
     { simulate_msp430->reg[reg] = data; }
@@ -252,7 +282,7 @@ static int put_data(struct _simulate *simulate, int PC, int reg, int Ad, int bw,
 
   if (reg == 2)
   {
-    if (Ad == 1) // &LABEL
+    if (mode == 1) // &LABEL
     {
       uint16_t a = READ_RAM(PC) | (READ_RAM(PC+1) << 8);
 
@@ -269,7 +299,7 @@ static int put_data(struct _simulate *simulate, int PC, int reg, int Ad, int bw,
   }
   if (reg == 0) // PC
   {
-    if (Ad == 1) // LABEL
+    if (mode == 1) // LABEL
     {
       uint16_t a = READ_RAM(PC) | (READ_RAM(PC + 1) << 8);
 
@@ -287,7 +317,7 @@ static int put_data(struct _simulate *simulate, int PC, int reg, int Ad, int bw,
     }
   }
 
-  if (Ad == 1) // x(Rn)
+  if (mode == 1) // x(Rn)
   {
     uint16_t a = READ_RAM(PC) | (READ_RAM(PC + 1) << 8);
     int address = simulate_msp430->reg[reg] + ((int16_t)a);
@@ -304,8 +334,25 @@ static int put_data(struct _simulate *simulate, int PC, int reg, int Ad, int bw,
 
     return 0;
   }
+    else
+  if (mode == 2 || mode == 3) // @Rn (mode 2) or @Rn+ (mode 3)
+  {
+    uint16_t index = simulate_msp430->reg[reg];
 
-  printf("Error: Unrecognized addressing mode for destination\n");
+    if (bw == 0)
+    {
+      WRITE_RAM(index, data & 0xff);
+      WRITE_RAM(index + 1, data >> 8);
+    }
+      else
+    {
+      WRITE_RAM(index, data & 0xff);
+    }
+
+    return 0;
+  }
+
+  printf("Error: Unrecognized addressing mode for destination %d\n", mode);
 
   return -1;
 }
@@ -325,7 +372,7 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
 
   if (o == 7) { return 1; }
   if (o == 6) { return count; }
- 
+
   As = (opcode & 0x0030) >> 4;
   bw = (opcode & 0x0040) >> 6;
   reg = opcode & 0x000f;
@@ -342,6 +389,7 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
         else
       { result = (c << 7) | (((uint8_t)src) >> 1); }
       put_data(simulate, pc, reg, As, bw, result);
+      update_reg(simulate, reg, As, bw);
       AFFECTS_NZ(result);
       CLEAR_V();
       break;
@@ -350,6 +398,7 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
       src = get_data(simulate, reg, As, bw);
       result = ((src & 0xff00) >> 8) | ((src & 0xff) << 8);
       put_data(simulate, pc, reg, As, bw, result);
+      update_reg(simulate, reg, As, bw);
       break;
     case 2:  // RRA
       pc = simulate_msp430->reg[0];
@@ -358,8 +407,9 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
       if (bw == 0)
       { result = ((int16_t)src) >> 1; }
         else
-      { result=((int8_t)src)>>1; }
+      { result = ((int8_t)src) >> 1; }
       put_data(simulate, pc, reg, As, bw, result);
+      update_reg(simulate, reg, As, bw);
       AFFECTS_NZ(result);
       CLEAR_V();
       break;
@@ -368,6 +418,7 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
       src = get_data(simulate, reg, As, bw);
       result = (int16_t)((int8_t)((uint8_t)src));
       put_data(simulate, pc, reg, As, bw, result);
+      update_reg(simulate, reg, As, bw);
       AFFECTS_NZ(result);
       CHECK_CARRY(result);
       CLEAR_V();
@@ -375,11 +426,13 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
     case 4:  // PUSH
       simulate_msp430->reg[1] -= 2;
       src = get_data(simulate, reg, As, bw);
+      update_reg(simulate, reg, As, bw);
       WRITE_RAM(simulate_msp430->reg[1], src & 0xff);
       WRITE_RAM(simulate_msp430->reg[1] + 1, src >> 8);
       break;
     case 5:  // CALL (no bw)
       src = get_data(simulate, reg, As, bw);
+      update_reg(simulate, reg, As, bw);
       simulate_msp430->reg[1] -= 2;
       WRITE_RAM(simulate_msp430->reg[1], simulate_msp430->reg[0] & 0xff);
       WRITE_RAM(simulate_msp430->reg[1] + 1, simulate_msp430->reg[0] >> 8);
@@ -388,7 +441,7 @@ static int one_operand_exe(struct _simulate *simulate, uint16_t opcode)
       break;
     case 6:  // RETI
       break;
-    default: 
+    default:
       return -1;
   }
 
@@ -415,7 +468,7 @@ static int relative_jump_exe(struct _simulate *simulate, uint16_t opcode)
     case 0:  // JNE/JNZ  Z==0
       if (GET_Z() == 0) simulate_msp430->reg[0] += offset;
       break;
-    case 1:  // JEQ/JZ   Z==1 
+    case 1:  // JEQ/JZ   Z==1
       if (GET_Z() == 1) simulate_msp430->reg[0] += offset;
       break;
     case 2:  // JNC/JLO  C==0
@@ -470,12 +523,14 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       return -1;
     case 4:  // MOV
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       put_data(simulate, pc, dst_reg, Ad, bw, src);
       break;
     case 5:  // ADD
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = (uint16_t)dst + (uint16_t)src;
@@ -487,6 +542,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 6:  // ADDC
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = (uint16_t)dst + (uint16_t)src + GET_C();
@@ -499,6 +555,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 7:  // SUBC
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       //src =~ ((uint16_t)src)+1;
@@ -515,6 +572,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 8:  // SUB
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       src = ((~((uint16_t)src)) & 0xffff) + 1;
@@ -528,6 +586,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 9:  // CMP
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       src = ((~((uint16_t)src)) & 0xffff) + 1;
@@ -541,6 +600,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 10: // DADD
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = src + dst + GET_C();
@@ -567,6 +627,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 11: // BIT (dest & src)
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = src & dst;
@@ -576,6 +637,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 12: // BIC (dest &= ~src)
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = (~src) & dst;
@@ -583,6 +645,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 13: // BIS (dest |= src)
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = src | dst;
@@ -590,6 +653,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 14: // XOR
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = src ^ dst;
@@ -600,6 +664,7 @@ static int two_operand_exe(struct _simulate *simulate, unsigned short int opcode
       break;
     case 15: // AND
       src = get_data(simulate, src_reg, As, bw);
+      update_reg(simulate, src_reg, As, bw);
       pc = simulate_msp430->reg[0];
       dst = get_data(simulate, dst_reg, Ad, bw);
       result = src & dst;
@@ -628,6 +693,7 @@ struct _simulate *simulate_init_msp430(struct _memory *memory)
   simulate->simulate_push = simulate_push_msp430;
   simulate->simulate_set_reg = simulate_set_reg_msp430;
   simulate->simulate_get_reg = simulate_get_reg_msp430;
+  simulate->simulate_set_pc = simulate_set_pc_msp430;
   simulate->simulate_reset = simulate_reset_msp430;
   simulate->simulate_dump_registers = simulate_dump_registers_msp430;
   simulate->simulate_run = simulate_run_msp430;
@@ -695,6 +761,13 @@ uint32_t simulate_get_reg_msp430(struct _simulate *simulate, char *reg_string)
   }
 
   return simulate_msp430->reg[reg];
+}
+
+void simulate_set_pc_msp430(struct _simulate *simulate, uint32_t value)
+{
+  struct _simulate_msp430 *simulate_msp430 = (struct _simulate_msp430 *)simulate->context;
+
+  simulate_msp430->reg[0] = value; 
 }
 
 void simulate_reset_msp430(struct _simulate *simulate)
@@ -832,15 +905,25 @@ int simulate_run_msp430(struct _simulate *simulate, int max_cycles, int step)
         int count = disasm_msp430(simulate->memory, pc, instruction, &cycles_min, &cycles_max);
         if (cycles_min == -1) { break; }
 
+        printf("%s", pc == simulate->break_point ? "*" : " ");
+/*
         if (pc == simulate->break_point) { printf("*"); }
         else { printf(" "); }
+*/
 
         if (n == 0)
-        { printf("! "); }
+        {
+          printf("! ");
+        }
           else
-        if (pc == simulate_msp430->reg[0]) { printf("> "); }
+        if (pc == simulate_msp430->reg[0])
+        {
+          printf("> ");
+        }
           else
-        { printf("  "); }
+        {
+          printf("  ");
+        }
 
         if (cycles_min < 1)
         {
@@ -861,8 +944,18 @@ int simulate_run_msp430(struct _simulate *simulate, int max_cycles, int step)
         count -= 2;
         while (count > 0)
         {
-          if (pc == simulate->break_point) { printf("*"); }
-          else { printf(" "); }
+          printf("%s", pc == simulate->break_point ? "*" : " ");
+/*
+          if (pc == simulate->break_point)
+          {
+            printf("*");
+          }
+          else
+          {
+            printf(" ");
+          }
+*/
+
           num = (READ_RAM(pc + 1) << 8) | READ_RAM(pc);
           printf("  0x%04x: 0x%04x\n", pc, num);
           pc += 2;
@@ -871,7 +964,10 @@ int simulate_run_msp430(struct _simulate *simulate, int max_cycles, int step)
       }
     }
 
-    if (simulate->auto_run == 1 && simulate->nested_call_count < 0) { return 0; }
+    if (simulate->auto_run == 1 && simulate->nested_call_count < 0)
+    {
+      return 0;
+    }
 
     if (ret == -1)
     {
@@ -879,10 +975,11 @@ int simulate_run_msp430(struct _simulate *simulate, int max_cycles, int step)
       return -1;
     }
 
-    if (max_cycles != -1 && cycles > max_cycles) break;
+    if (max_cycles != -1 && cycles > max_cycles) { break; }
+
     if (simulate->break_point == simulate_msp430->reg[0])
     {
-       printf("Breakpoint hit at 0x%04x\n", simulate->break_point);
+      printf("Breakpoint hit at 0x%04x\n", simulate->break_point);
       break;
     }
 

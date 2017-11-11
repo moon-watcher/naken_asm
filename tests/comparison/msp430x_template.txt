@@ -1,0 +1,121 @@
+pushm #1, r5
+pushm.w #4, r5
+pushm.a #3, r5
+rrcm.w #3, r5
+rrcm.a #3, r5
+rrcm #3, r5
+rram #3, r7
+rlam.w #1, r9
+rrum.a #2, r10
+rrum #2, r10
+mova @r10, r11
+mova @r10+, r11
+mova &0x12344, r11
+mova 5(r10), r11
+mova -32767(r10), r11
+mova 0, r7
+mova 0x1234, r7
+mova r11, &0x12344
+mova r11, 5(r10)
+mova #0x12345, r10
+cmpa #0x12345, r10
+adda #0x12345, r10
+suba #0x12345, r10
+mova r11, r10
+calla &0x12346
+calla 10(r9)
+calla 10(r0)
+calla #0x12346
+movx.b r9, r6
+movx.w r9, r6
+movx.a #1, r6
+movx r5, r6
+addx.a  #0x12345, r5
+addx.b  &0x1234, r5
+addx.b  &0x12345, r5
+movx.a  #-1, r7
+movx.a  #-3, r7
+movx.a  #0xfffff, r7
+decx.a r8
+addx.b  0x65432, r5
+rrax.a r11
+rrax.w r9
+rrax.b r4
+rrax r7
+rrcx.b r5
+rrcx.b 2(r5)
+rrcx.w 100(r5)
+rrcx.w r8
+swpbx r7
+swpbx &0x1000
+;swpbx &0x12340
+rrax.w r9
+rrax.b 0x1234
+rrax.w &0x4310
+rrax.w &0x4310
+sxtx r7
+sxtx r15
+pushx.w r8
+pushx.w #0x2345
+pushx.b r4
+pushx.a #0xfffff
+pushx.w #0xffff
+pushx.b #0xff
+pushx.a #-1
+pushx.w #-1
+pushx.b #-1
+rrcx.b @r8
+rrcx.w @r8+
+movx.w r6, r7
+movx.b r9, 3(r8)
+movx.w r4, 6(r4)
+movx.b #0xff, 0x5678
+movx.w #0xffff, 0x5678
+movx.a #0xfffff, 0x5678
+movx.b #-1, 0x5678
+movx.w #-1, 0x5678
+movx.a #-1, 0x5678
+movx.w 0x1234, 0x5678
+movx.w &0x1234, 0x5678
+movx.w #0x1234, 0x5678
+movx.w 0x34(r7), 0x5678
+addx.b @r4, r7
+addx.w #4, r7
+addcx.w @r4, 6(r7)
+addcx.w @r4+, 6(r6)
+subcx.b #1, 6(r5)
+subx.a #8, &100
+cmpx.b #-1, 6(r4)
+daddx.b @r4+, 6(r11)
+bitx.a @r4+, 6(r7)
+bisx.w @r4+, 6(r9)
+xorx.b @r9+, 6(r7)
+andx.b #0, 6(r7)
+adcx.a r9
+clrx.b r8
+dadcx.w r8
+decx.b r7
+decdx.b 100(r9)
+incx.w r8
+incdx.w r9
+invx.w r10
+invx.w &0x1000
+popx.w r9
+rlax.a r9
+rlcx.w r10
+sbcx.b r11
+tstx.a r9
+pushm.w #5,r7
+popm.w  #5,r6
+bra r7
+bra @r6
+bra @r6+
+bra &0x12346
+bra 0x2345(r6)
+bra #0x12346
+bra $+0x100
+reta
+;clra r7
+;decda r7
+;incda r7
+;tsta r7

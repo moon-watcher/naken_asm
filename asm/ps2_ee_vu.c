@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -318,15 +318,68 @@ static int get_operands(struct _asm_context *asm_context, struct _operand *opera
       else
     if (IS_TOKEN(token, '('))
     {
+      int type;
+      int base_reg;
+      int field_mask;
+
+      token_type = tokens_get(asm_context, token, TOKENLEN);
+
+      n = get_register_ps2_ee_vu(token, &type, &base_reg, &field_mask);
+
       operands[operand_count].type = OPERAND_BASE;
 
-      if (get_base(asm_context, &operands[operand_count], &modifier) == -1)
+      if (n == -1 && IS_NOT_TOKEN(token, '-'))
       {
-        return -1;
+        tokens_push(asm_context, token, token_type);
+        tokens_push(asm_context, "(", TOKEN_SYMBOL);
+
+        if (asm_context->pass == 1)
+        {
+          if (ignore_paren_expression(asm_context) == -1)
+          {
+            return -1;
+          }
+
+          operands[operand_count].value = 0;
+        }
+          else
+        {
+          if (eval_expression(asm_context, &operands[operand_count].value) != 0)
+          {
+            print_error_unexp(token, asm_context);
+            return -1;
+          }
+        }
+
+        token_type = tokens_get(asm_context, token, TOKENLEN);
+
+        if (IS_NOT_TOKEN(token, '('))
+        {
+          tokens_push(asm_context, token, token_type);
+          operands[operand_count].type = OPERAND_NUMBER;
+        }
+          else
+        {
+          operands[operand_count].type = OPERAND_OFFSET_BASE;
+        }
+      }
+        else
+      {
+        // FIXME - So gross :(
+        tokens_push(asm_context, token, token_type);
+        strcpy(token, "(");
       }
 
-      if (modifier == -1) { operands[operand_count].type = OPERAND_BASE_DEC; }
-      else if (modifier == 1) { operands[operand_count].type = OPERAND_BASE_INC; }
+      if (IS_TOKEN(token, '('))
+      {
+        if (get_base(asm_context, &operands[operand_count], &modifier) == -1)
+        {
+          return -1;
+        }
+
+        if (modifier == -1) { operands[operand_count].type = OPERAND_BASE_DEC; }
+        else if (modifier == 1) { operands[operand_count].type = OPERAND_BASE_INC; }
+      }
     }
       else
     {
@@ -420,6 +473,7 @@ static int get_opcode(struct _asm_context *asm_context, struct _table_ps2_ee_vu 
   char instr_case[TOKENLEN];
   int dest = 0;
   int iemdt_bits = 0;
+  int wrong_operand_count = 0;
   int n, r;
 
   lower_copy(instr_case, instr);
@@ -453,6 +507,9 @@ static int get_opcode(struct _asm_context *asm_context, struct _table_ps2_ee_vu 
 
       if (operand_count != table_ps2_ee_vu[n].operand_count)
       {
+        // REVIEW: Does this chip have instructions with the same name
+        //         different operand count?
+        wrong_operand_count = 1;
         n++;
         continue;
       }
@@ -774,11 +831,22 @@ static int get_opcode(struct _asm_context *asm_context, struct _table_ps2_ee_vu 
     n++;
   }
 
-  printf("Error: Unknown %s instruction '%s' at %s:%d\n",
-         is_lower ? "lower" : "upper",
-         instr,
-         asm_context->filename,
-         asm_context->line);
+  if (wrong_operand_count == 0)
+  {
+    printf("Error: Unknown %s instruction '%s' at %s:%d\n",
+           is_lower ? "lower" : "upper",
+           instr,
+           asm_context->filename,
+           asm_context->line);
+  }
+    else
+  {
+    printf("Error: Wrong operand count for %s instruction '%s' at %s:%d\n",
+           is_lower ? "lower" : "upper",
+           instr,
+           asm_context->filename,
+           asm_context->line);
+  }
 
   return -1;
 }

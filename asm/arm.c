@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -61,6 +61,7 @@ struct _operand
   uint32_t value;
   int type;
   int sub_type;
+  uint8_t set_cond : 1;
 };
 
 #if 0
@@ -92,15 +93,15 @@ static int get_register_arm(char *token)
   return -1;
 }
 
-int parse_condition(char **instr_lower)
+static int parse_condition(char **instr_case)
 {
   int cond;
-  char *instr = *instr_lower;
+  char *instr = *instr_case;
 
   for (cond = 0; cond < 16; cond++)
   {
     if (strncmp(instr, arm_cond_a[cond], 2) == 0)
-    { *instr_lower += 2; break; }
+    { *instr_case += 2; break; }
   }
   if (cond == 16) { cond = 14; }
 
@@ -252,7 +253,7 @@ static int parse_alu_2(struct _asm_context *asm_context, struct _operand *operan
       operands[1].type == OPERAND_IMMEDIATE &&
       operands[1].value == 0xffffffff)
   {
-    //strncpy(instr_lower, "mvn", 3);
+    //strncpy(instr_case, "mvn", 3);
     opcode = 0x01e00000,
     operands[1].value = 0x0;
   }
@@ -263,7 +264,7 @@ static int parse_alu_2(struct _asm_context *asm_context, struct _operand *operan
       operands[1].type == OPERAND_IMMEDIATE &&
       operands[1].value == 0xffffffff)
   {
-    //strncpy(instr_lower, "mov", 3);
+    //strncpy(instr_case, "mov", 3);
     opcode = 0x01a00000;
     operands[1].value = 0;
   }
@@ -537,14 +538,41 @@ static int parse_ldm_stm(struct _asm_context *asm_context, struct _operand *oper
 {
   int pr = 1;  // gcc sets this to 1 if it's not used
   int u = 0;
-  int s = 0;
+  int ls = (opcode >> 20) & 1; // LS = 1 for load
   int w = (operands[0].type == OPERAND_REG_WRITE_BACK) ? 1 : 0;
 
   int cond = parse_condition(&instr);
 
-  // FIXME: Add post / pre inc
+  if (strncmp(instr, "fd", 2) == 0)
+  {
+    if (ls == 0) { instr[0] = 'd'; instr[1] = 'b'; }
+    else { instr[0] = 'i'; instr[1] = 'a'; }
+  }
+    else
+  if (strncmp(instr, "fa", 2) == 0)
+  {
+    if (ls == 0) { instr[0] = 'i'; instr[1] = 'b'; }
+    else { instr[0] = 'd'; instr[1] = 'a'; }
+  }
+    else
+  if (strncmp(instr, "ed", 2) == 0)
+  {
+    if (ls == 0) { instr[0] = 'd'; instr[1] = 'a'; }
+    else { instr[0] = 'i'; instr[1] = 'b'; }
+  }
+    else
+  if (strncmp(instr, "ea", 2) == 0)
+  {
+    if (ls == 0) { instr[0] = 'i'; instr[1] = 'a'; }
+    else { instr[0] = 'b'; instr[1] = 'b'; }
+  }
 
-  if (instr[0] == 's') { s = 1; instr++; }
+  //if (instr[0] == 's') { s = 1; instr++; }
+  if (strncmp(instr, "ia", 2) == 0) { instr += 2; pr = 0; u = 1; }
+  else if (strncmp(instr, "ib", 2) == 0) { instr += 2; pr = 1; u = 1; }
+  else if (strncmp(instr, "da", 2) == 0) { instr += 2; pr = 0; u = 0; }
+  else if (strncmp(instr, "db", 2) == 0) { instr += 2; pr = 1; u = 0; }
+
   if (*instr != 0)
   {
     print_error_unknown_instr(instr, asm_context);
@@ -556,7 +584,16 @@ static int parse_ldm_stm(struct _asm_context *asm_context, struct _operand *oper
        operands[0].type == OPERAND_REG_WRITE_BACK) &&
        operands[1].type == OPERAND_MULTIPLE_REG)
   {
-    add_bin32(asm_context, opcode | (cond<<28) | (pr<<24) | (u<<23) | (s<<22) | (w<<21) | (operands[0].value<<16) | operands[1].value, IS_OPCODE);
+    opcode |= (cond << 28) |
+              (pr << 24) |
+              (u << 23) |
+              (operands[1].set_cond << 22) |
+              (w << 21) |
+              (operands[0].value << 16) |
+              operands[1].value,
+
+    //add_bin32(asm_context, opcode | (cond << 28) | (pr << 24) | (u << 23) | (s << 22) | (w << 21) | (operands[0].value << 16) | operands[1].value, IS_OPCODE);
+    add_bin32(asm_context, opcode, IS_OPCODE);
 
      return 4;
   }
@@ -566,7 +603,7 @@ static int parse_ldm_stm(struct _asm_context *asm_context, struct _operand *oper
 
 static int parse_swap(struct _asm_context *asm_context, struct _operand *operands, int operand_count, char *instr, uint32_t opcode)
 {
-int b = 0; // B flag
+  int b = 0; // B flag
 
   int cond = parse_condition(&instr);
 
@@ -578,7 +615,7 @@ int b = 0; // B flag
   {
     if (*instr == 'b') b = 1;
 
-    add_bin32(asm_context, SWAP_OPCODE | (cond<<28) | (b<<22) | (operands[2].value<<16) | (operands[0].value<<12) | operands[1].value, IS_OPCODE);
+    add_bin32(asm_context, SWAP_OPCODE | (cond << 28) | (b << 22) | (operands[2].value << 16) | (operands[0].value << 12) | operands[1].value, IS_OPCODE);
     return 4;
   }
 
@@ -607,29 +644,43 @@ static int parse_msr(struct _asm_context *asm_context, struct _operand *operands
 {
   int ps = 0; // PS flag
 
+  //opcode = MSR_FLAG_OPCODE;
+
   // This is for MSR(all) and MSR(flag).
 
   int cond = parse_condition(&instr);
+
+  ps = operands[0].value;
+  opcode = MSR_FLAG_OPCODE | (cond << 28) | (ps << 22);
+
+  if (operands[0].type == OPERAND_PSR)
+  {
+    opcode |= (1 << 16);
+  }
+    else
+  {
+    operands[0].type = OPERAND_PSR;
+  }
 
   if (*instr == 0 && operand_count == 2 && operands[0].type == OPERAND_PSR)
   {
     if (operands[1].type == OPERAND_REG)
     {
-      ps = operands[0].value;
-      add_bin32(asm_context, MSR_ALL_OPCODE | (cond<<28) | (ps<<22) | (operands[1].value<<12), IS_OPCODE);
+      //ps = operands[0].value;
+      add_bin32(asm_context, opcode | (operands[1].value << 12), IS_OPCODE);
       return 4;
     }
       else
     if (operands[1].type == OPERAND_REG)
     {
-      ps = operands[0].value;
-      add_bin32(asm_context, MSR_FLAG_OPCODE | (cond<<28) | (ps<<22) | (operands[1].value), IS_OPCODE);
+      //ps = operands[0].value;
+      add_bin32(asm_context, opcode | (operands[1].value), IS_OPCODE);
       return 4;
     }
       else
     if (operands[1].type == OPERAND_IMMEDIATE)
     {
-      ps=operands[0].value;
+      //ps = operands[0].value;
       int source_operand = compute_immediate(operands[1].value);
       if (source_operand == -1)
       {
@@ -637,7 +688,7 @@ static int parse_msr(struct _asm_context *asm_context, struct _operand *operands
         return -1;
       }
 
-      add_bin32(asm_context, MSR_FLAG_OPCODE | (cond<<28) | (1<<25) | (ps<<22) | source_operand, IS_OPCODE);
+      add_bin32(asm_context, opcode | (1 << 25) | source_operand, IS_OPCODE);
       return 4;
     }
   }
@@ -649,7 +700,7 @@ static int parse_msr(struct _asm_context *asm_context, struct _operand *operands
   {
     int source_operand = imm_shift_to_immediate(asm_context, operands, operand_count, 1);
     if (source_operand < 0) { return -1; }
-    add_bin32(asm_context, MSR_FLAG_OPCODE | (cond<<28) | (1<<25) | (ps<<22) | source_operand, IS_OPCODE);
+    add_bin32(asm_context, opcode | (1 << 25) | source_operand, IS_OPCODE);
     return 4;
   }
 
@@ -665,13 +716,20 @@ static int parse_swi(struct _asm_context *asm_context, struct _operand *operands
     return ARM_UNKNOWN_INSTRUCTION;
   }
 
-  if (operand_count != 0)
+  if (operand_count != 1)
   {
     print_error_opcount(instr, asm_context);
     return -1;
   }
 
-  add_bin32(asm_context, CO_SWI_OPCODE | (cond<<28), IS_OPCODE);
+  if (operands[0].type != OPERAND_NUMBER ||
+      (int32_t)operands[0].value < 0 || operands[0].value > 0xffffff)
+  {
+    return ARM_ILLEGAL_OPERANDS;
+    return -1;
+  }
+
+  add_bin32(asm_context, CO_SWI_OPCODE | (cond << 28) | operands[0].value, IS_OPCODE);
   return 4;
 }
 
@@ -724,15 +782,15 @@ int parse_instruction_arm(struct _asm_context *asm_context, char *instr)
 {
   struct _operand operands[4];
   int operand_count;
-  char instr_lower_mem[TOKENLEN];
-  char *instr_lower=instr_lower_mem;
+  char instr_case_mem[TOKENLEN];
+  char *instr_case = instr_case_mem;
   char token[TOKENLEN];
   int token_type;
   int n;
   int matched = 0;
   int bytes = -1;
 
-  lower_copy(instr_lower, instr);
+  lower_copy(instr_case, instr);
   memset(operands, 0, sizeof(operands));
   operand_count = 0;
 
@@ -830,13 +888,13 @@ int parse_instruction_arm(struct _asm_context *asm_context, char *instr)
       }
     }
       else
-    if (strcasecmp(token, "cpsr")==0)
+    if (strcasecmp(token, "cpsr") == 0 || strcasecmp(token, "cpsr_all") == 0)
     {
       operands[operand_count].type = OPERAND_PSR;
       operands[operand_count].value = 0;
     }
       else
-    if (strcasecmp(token, "spsr") == 0)
+    if (strcasecmp(token, "spsr") == 0 || strcasecmp(token, "spsr_all") == 0)
     {
       operands[operand_count].type = OPERAND_PSR;
       operands[operand_count].value = 1;
@@ -896,6 +954,16 @@ int parse_instruction_arm(struct _asm_context *asm_context, char *instr)
           print_error_unexp(token, asm_context);
           return -1;
         }
+      }
+
+      token_type = tokens_get(asm_context, token, TOKENLEN);
+      if (IS_TOKEN(token, '^'))
+      {
+        operands[operand_count].set_cond = 1;
+      }
+      else
+      {
+        tokens_push(asm_context, token, token_type);
       }
     }
       else
@@ -1003,9 +1071,9 @@ int parse_instruction_arm(struct _asm_context *asm_context, char *instr)
   n = 0;
   while(table_arm[n].instr != NULL)
   {
-    if (strncmp(table_arm[n].instr, instr_lower, table_arm[n].len) == 0)
+    if (strncmp(table_arm[n].instr, instr_case, table_arm[n].len) == 0)
     {
-      char *instr_cond = instr_lower + table_arm[n].len;
+      char *instr_cond = instr_case + table_arm[n].len;
       matched = 1;
 
       switch(table_arm[n].type)

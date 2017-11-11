@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -25,6 +25,27 @@ static char *tmsinstr_1[] = { "sbit", "rbit", "tbit1", "ldx" };
 static char *tmsinstr_2[] = { "tcy", "ynec", "tcmiy", "alec", "ldp" };
 static char *tms_branch[] = { "br", "call" };
 
+static void add_bin_lsfr(struct _asm_context *asm_context, uint8_t data, int flags)
+{
+  int line = DL_NO_CG;
+
+  if (asm_context->pass == 2 && flags == IS_OPCODE)
+  {
+    line = asm_context->line;
+  }
+
+  if (asm_context->pass == 1 && asm_context->pass_1_write_disable == 1)
+  {
+    asm_context->address++;
+    return;
+  }
+
+  memory_write_m(&asm_context->memory, tms1000_address_to_lsfr[asm_context->address], data);
+  memory_debug_line_set(asm_context, tms1000_address_to_lsfr[asm_context->address], line);
+
+  asm_context->address++;
+}
+
 int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
 {
   char token[TOKENLEN];
@@ -40,7 +61,7 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
     if (strcmp(instr_case, table_tms1000[n].instr) == 0 &&
         table_tms1000[n].op1000 != 0xffff)
     {
-      add_bin8(asm_context, table_tms1000[n].op1000, IS_OPCODE);
+      add_bin_lsfr(asm_context, table_tms1000[n].op1000, IS_OPCODE);
       return 1;
     }
     n++;
@@ -59,13 +80,16 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
       }
 
       int num = atoi(token);
+
       if (num < 0 || num > 3)
       {
         print_error_range("Constant", 0, 3, asm_context);
         return -1;
       }
 
-      add_bin8(asm_context, ((0xc+n)<<2)|num, IS_OPCODE);
+      num = tms1000_reverse_bit_address[num];
+
+      add_bin_lsfr(asm_context, ((0xc + n) << 2) | num, IS_OPCODE);
 
       return 1;
     }
@@ -86,17 +110,19 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
       int num = atoi(token);
       if (num < 0 || num > 15)
       {
-        print_error_range("Constant", 0, 3, asm_context);
+        print_error_range("Constant", 0, 15, asm_context);
         return -1;
       }
 
+      num = tms1000_reverse_constant[num];
+
       if (n < 4)
       {
-        add_bin8(asm_context, ((0x4 + n) << 4)|num, IS_OPCODE);
+        add_bin_lsfr(asm_context, ((0x4 + n) << 4) | num, IS_OPCODE);
       }
         else
       {
-        add_bin8(asm_context, 0x10 | num, IS_OPCODE);
+        add_bin_lsfr(asm_context, 0x10 | num, IS_OPCODE);
       }
 
       return 1;
@@ -108,7 +134,6 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
     // Branch / call instructions
     if (strcmp(instr_case, tms_branch[n]) == 0)
     {
-      int is_forward = 0;
       int address = 0;
       int page;
 
@@ -121,11 +146,8 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
         }
 
         eat_operand(asm_context);
-        is_forward = 1;
         address = asm_context->address;
       }
-
-      if (address > asm_context->address) { is_forward = 1; }
 
       int curr_page = asm_context->address >> 6;
 
@@ -138,12 +160,13 @@ int parse_instruction_tms1000(struct _asm_context *asm_context, char *instr)
         return -1;
       }
 
-      if (is_forward == 1 || page != curr_page)
+      if (asm_context->pass == 2 && page != curr_page)
       {
-        add_bin8(asm_context, (0x10) | (page & 0xf), IS_OPCODE);
+        //add_bin_lsfr(asm_context, (0x10) | (page & 0xf), IS_OPCODE);
+        printf("Warning: Branch crosses page boundary at %s:%d\n", asm_context->filename, asm_context->line);
       }
 
-      add_bin8(asm_context, (0x80 | (n << 6)) | (address & 0x3f), IS_OPCODE);
+      add_bin_lsfr(asm_context, (0x80 | (n << 6)) | tms1000_address_to_lsfr[(address & 0x3f)], IS_OPCODE);
 
       return 1;
     }
@@ -169,7 +192,7 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
     if (strcmp(instr_case, table_tms1000[n].instr) == 0 &&
         table_tms1000[n].op1100 != 0xffff)
     {
-      add_bin8(asm_context, table_tms1000[n].op1100, IS_OPCODE);
+      add_bin_lsfr(asm_context, table_tms1000[n].op1100, IS_OPCODE);
       return 1;
     }
     n++;
@@ -197,7 +220,9 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
           return -1;
         }
 
-        add_bin8(asm_context, (0x5 << 3) | num, IS_OPCODE);
+        num = tms1000_reverse_bit_address[num];
+
+        add_bin_lsfr(asm_context, (0x5 << 3) | num, IS_OPCODE);
       }
         else
       {
@@ -207,7 +232,9 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
           return -1;
         }
 
-        add_bin8(asm_context, ((0xc + n) << 2) | num, IS_OPCODE);
+        num = tms1000_reverse_constant[num] >> 5;
+
+        add_bin_lsfr(asm_context, ((0xc + n) << 2) | num, IS_OPCODE);
       }
 
       return 1;
@@ -230,17 +257,19 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
       int num = atoi(token);
       if (num < 0 || num > 15)
       {
-        print_error_range("Constant", 0, 3, asm_context);
+        print_error_range("Constant", 0, 15, asm_context);
         return -1;
       }
 
+      num = tms1000_reverse_constant[num];
+
       if (n < 4)
       {
-        add_bin8(asm_context, ((0x4 + n) << 4) | num, IS_OPCODE);
+        add_bin_lsfr(asm_context, ((0x4 + n) << 4) | num, IS_OPCODE);
       }
         else
       {
-        add_bin8(asm_context, 0x10 | num, IS_OPCODE);
+        add_bin_lsfr(asm_context, 0x10 | num, IS_OPCODE);
       }
 
       return 1;
@@ -252,7 +281,6 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
     // Branch / call instructions
     if (strcmp(instr_case, tms_branch[n]) == 0)
     {
-      int is_forward = 0;
       int address = 0;
       int page;
       if (eval_expression(asm_context, &address) != 0)
@@ -264,11 +292,8 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
         }
 
         eat_operand(asm_context);
-        is_forward = 1;
         address = asm_context->address;
       }
-
-      if (address > asm_context->address) { is_forward = 1; }
 
       int curr_page = asm_context->address >> 6;
 
@@ -281,12 +306,13 @@ int parse_instruction_tms1100(struct _asm_context *asm_context, char *instr)
         return -1;
       }
 
-      if (is_forward == 1 || page != curr_page)
+      if (asm_context->pass == 2 && page != curr_page)
       {
-        add_bin8(asm_context, (0x10) | (page & 0xf), IS_OPCODE);
+        //add_bin_lsfr(asm_context, (0x10) | (page & 0xf), IS_OPCODE);
+        printf("Warning: Branch crosses page boundary at %s:%d\n", asm_context->filename, asm_context->line);
       }
 
-      add_bin8(asm_context, (0x80 | (n << 6)) | (address & 0x3f), IS_OPCODE);
+      add_bin_lsfr(asm_context, (0x80 | (n << 6)) | tms1000_address_to_lsfr[(address & 0x3f)], IS_OPCODE);
 
       return 1;
     }

@@ -6,3 +6,6 @@ naken_prog
 *.hex
 *.lst
 *.swp
+*.bin
+*~
+*.elf

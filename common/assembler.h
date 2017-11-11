@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -24,7 +24,7 @@
 
 #define TOKENLEN 512
 #define PARAM_STACK_LEN 4096
-#define INCLUDE_PATH_LEN 1024
+#define INCLUDE_PATH_LEN 4096
 
 //#define DL_EMPTY -1
 //#define DL_DATA -2
@@ -56,7 +56,9 @@ struct _asm_context
   const char *filename;
   struct _token_buffer token_buffer;
   char pushback[TOKENLEN];
+  char pushback2[TOKENLEN];
   int pushback_type;
+  int pushback2_type;
   char unget[512];
   int unget_ptr;
   int unget_stack[MAX_NESTED_MACROS+1];
@@ -78,6 +80,9 @@ struct _asm_context
   uint8_t no_symbols : 1;
   uint8_t pass_1_write_disable : 1;
   uint8_t write_list_file : 1;
+  uint8_t dump_symbols : 1;
+  uint8_t dump_macros : 1;
+  uint8_t optimize : 1;
   uint32_t flags;
   uint32_t extra_context;
 };

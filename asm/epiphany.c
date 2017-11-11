@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -39,7 +39,6 @@ struct _operand
   uint8_t type;
   uint8_t reg;
   int value;
-  uint8_t use_32_bit_instruction;
   uint8_t reg_is_negative;
 };
 
@@ -124,12 +123,16 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
   char token[TOKENLEN];
   int token_type;
   struct _operand operands[3];
+  uint8_t use_32_bit_instruction = 0;
   int operand_count;
   int offset;
   uint32_t reg_combo;
   uint32_t value;
   uint32_t sub;
-  int n;
+  uint32_t special;
+  uint32_t opcode;
+  int found = 0;
+  int n, m;
 
   lower_copy(instr_case, instr);
   operand_count = 0;
@@ -145,7 +148,22 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
       break;
     }
 
-    // if (IS_TOKEN(token,';')) { break; }
+    if (IS_TOKEN(token, '.'))
+    {
+      token_type = tokens_get(asm_context, token, TOKENLEN);
+
+      if (IS_TOKEN(token, 'l') || IS_TOKEN(token, 'L'))
+      {
+        memory_write(asm_context, asm_context->address, 1, asm_context->line);
+        use_32_bit_instruction = 1;
+      }
+        else
+      {
+        print_error_unexp(token, asm_context);
+      }
+
+      token_type = tokens_get(asm_context, token, TOKENLEN);
+    }
 
     if (operand_count != 0)
     {
@@ -196,18 +214,13 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
         {
           eat_operand(asm_context);
           memory_write(asm_context, asm_context->address, 1, asm_context->line);
-          operands[operand_count].use_32_bit_instruction = 1;
+          use_32_bit_instruction = 1;
         }
           else
         {
           print_error_illegal_expression(instr, asm_context);
           return -1;
         }
-      }
-
-      if (memory_read(asm_context, asm_context->address) != 0)
-      {
-        operands[operand_count].use_32_bit_instruction = 1;
       }
 
       operands[operand_count].type = OPERAND_NUMBER;
@@ -242,18 +255,13 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
             {
               eat_operand(asm_context);
               memory_write(asm_context, asm_context->address, 1, asm_context->line);
-              operands[operand_count].use_32_bit_instruction = 1;
+              use_32_bit_instruction = 1;
             }
               else
             {
               print_error_illegal_expression(instr, asm_context);
               return -1;
             }
-          }
-
-          if (memory_read(asm_context, asm_context->address) != 0)
-          {
-            operands[operand_count].use_32_bit_instruction = 1;
           }
 
           operands[operand_count].type = OPERAND_INDEX_REG_IMM;
@@ -309,18 +317,13 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
         {
           eat_operand(asm_context);
           memory_write(asm_context, asm_context->address, 1, asm_context->line);
-          operands[operand_count].use_32_bit_instruction = 1;
+          use_32_bit_instruction = 1;
         }
           else
         {
           print_error_illegal_expression(instr, asm_context);
           return -1;
         }
-      }
-
-      if (memory_read(asm_context, asm_context->address) != 0)
-      {
-        operands[operand_count].use_32_bit_instruction = 1;
       }
 
       operands[operand_count].type = OPERAND_ADDRESS;
@@ -330,12 +333,25 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
     operand_count++;
   }
 
+  if (memory_read(asm_context, asm_context->address) != 0)
+  {
+    use_32_bit_instruction = 1;
+  }
+
   // Get opcodes
   n = 0;
   while(table_epiphany[n].instr != NULL)
   {
     if (strcmp(table_epiphany[n].instr, instr_case) == 0)
     {
+      found = 1;
+
+      if (use_32_bit_instruction == 1 && table_epiphany[n].size == 16)
+      {
+        n++;
+        continue;
+      }
+
       switch(table_epiphany[n].type)
       {
         case OP_NONE:
@@ -347,7 +363,7 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
         {
           if (operand_count == 1 && operands[0].type == OPERAND_ADDRESS)
           {
-            if (operands[1].use_32_bit_instruction == 1) { break; }
+            //if (use_32_bit_instruction == 1) { break; }
 
             offset = operands[0].value - asm_context->address;
 
@@ -379,14 +395,14 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
               return -1;
             }
 
-            offset = offset >> 1;
-
-            if (check_range(asm_context, "Offset", offset, -0x800000, 0x7fffff) == -1)
+            if (check_range(asm_context, "Offset", offset, -(1 << 24), (1 << 24) - 1) == -1)
             {
               return -1;
             }
 
-            add_bin32(asm_context, table_epiphany[n].opcode | ((((uint32_t)offset) & 0xffffff) << 8), IS_OPCODE);
+            offset = offset >> 1;
+
+            add_bin32(asm_context, table_epiphany[n].opcode | (((uint32_t)(offset & 0xffffff)) << 8), IS_OPCODE);
 
             return 4;
           }
@@ -398,7 +414,7 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
               operands[0].type == OPERAND_REG &&
               operands[1].type == OPERAND_INDEX_REG_IMM)
           {
-            if (operands[1].use_32_bit_instruction == 1) { break; }
+            //if (use_32_bit_instruction == 1) { break; }
             if (operands[1].value < 0 || operands[1].value > 7) { break; }
             if (operands[0].reg > 7) { break; }
             if (operands[1].reg > 7) { break; }
@@ -538,7 +554,7 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
               operands[0].type == OPERAND_REG &&
               operands[1].type == OPERAND_NUMBER)
           {
-            if (operands[1].use_32_bit_instruction == 1) { break; }
+            //if (use_32_bit_instruction == 1) { break; }
             if (operands[0].reg > 7) { break; }
             if (operands[1].value < 0 || operands[1].value > 0xff) { break; }
 
@@ -574,7 +590,7 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
               operands[1].type == OPERAND_REG &&
               operands[2].type == OPERAND_NUMBER)
           {
-            if (operands[1].use_32_bit_instruction == 1) { break; }
+            //if (use_32_bit_instruction == 1) { break; }
             if (operands[0].reg > 7) { break; }
             if (operands[1].reg > 7) { break; }
             if (operands[2].value < -4 || operands[2].value > 3) { break; }
@@ -778,6 +794,128 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
           }
           break;
         }
+        case OP_SPECIAL_RN_16:
+        {
+          if (operand_count == 2 &&
+              operands[0].type == OPERAND_ADDRESS &&
+              operands[1].type == OPERAND_REG)
+          {
+            if (operands[1].reg > 7) { break; }
+            if ((operands[0].value & 0xffffff00) != 0xf0400) { break; }
+
+            if ((operands[0].value & 0x3) != 0)
+            {
+              print_error("Unknown special register", asm_context);
+              return -1;
+            }
+
+            special = (operands[0].value & 0xff) / 4;
+
+            if (special > 7) { break; }
+
+            opcode = table_epiphany[n].opcode |
+                     special << 10 |
+                     operands[1].reg << 13;
+
+            add_bin16(asm_context, opcode, IS_OPCODE);
+
+            return 2;
+          }
+          break;
+        }
+        case OP_RD_SPECIAL_16:
+        {
+          if (operand_count == 2 &&
+              operands[0].type == OPERAND_REG &&
+              operands[1].type == OPERAND_ADDRESS)
+          {
+            if (operands[0].reg > 7) { break; }
+            if ((operands[1].value & 0xffffff00) != 0xf0400) { break; }
+
+            if ((operands[1].value & 0x3) != 0)
+            {
+              print_error("Unknown special register", asm_context);
+              return -1;
+            }
+
+            special = (operands[1].value & 0xff) / 4;
+
+            if (special > 7) { break; }
+
+            opcode = table_epiphany[n].opcode |
+                     operands[0].reg << 13 |
+                     special << 10;
+
+            add_bin16(asm_context, opcode, IS_OPCODE);
+
+            return 2;
+          }
+          break;
+        }
+        case OP_SPECIAL_RN_32:
+        {
+          if (operand_count == 2 &&
+              operands[0].type == OPERAND_ADDRESS &&
+              operands[1].type == OPERAND_REG)
+          {
+            m = (operands[0].value >> 8) & 0xf;
+            special = (operands[0].value & 0xff) / 4;
+
+            if ((operands[0].value & 0x3) != 0 ||
+                (operands[0].value & 0xfffff000) != 0x000f0000 ||
+                 m < 4 || m > 7 || special > 63)
+            {
+              print_error("Unknown special register", asm_context);
+              return -1;
+            }
+
+            m = m - 4;
+
+            opcode = table_epiphany[n].opcode |
+                     m << 20 |
+                     (special & 0x7) << 10 |
+                     (special >> 3) << 26 |
+                     (operands[1].reg & 0x7) << 13 |
+                     (operands[1].reg >> 3) << 29;
+
+            add_bin32(asm_context, opcode, IS_OPCODE);
+
+            return 4;
+          }
+          break;
+        }
+        case OP_RD_SPECIAL_32:
+        {
+          if (operand_count == 2 &&
+              operands[0].type == OPERAND_REG &&
+              operands[1].type == OPERAND_ADDRESS)
+          {
+            m = (operands[1].value >> 8) & 0xf;
+            special = (operands[1].value & 0xff) / 4;
+
+            if ((operands[1].value & 0x3) != 0 ||
+                (operands[1].value & 0xfffff000) != 0x000f0000 ||
+                 m < 4 || m > 7 || special > 63)
+            {
+              print_error("Unknown special register", asm_context);
+              return -1;
+            }
+
+            m = m - 4;
+
+            opcode = table_epiphany[n].opcode |
+                     m << 20 |
+                     (special & 0x7) << 10 |
+                     (special >> 3) << 26 |
+                     (operands[0].reg & 0x7) << 13 |
+                     (operands[0].reg >> 3) << 29;
+
+            add_bin32(asm_context, opcode, IS_OPCODE);
+
+            return 4;
+          }
+          break;
+        }
         default:
           printf("Internal error %s:%d\n", __FILE__, __LINE__);
           return -1;
@@ -788,7 +926,16 @@ int parse_instruction_epiphany(struct _asm_context *asm_context, char *instr)
     n++;
   }
 
-  print_error_unknown_operand_combo(instr, asm_context);
+  if (found == 1)
+  {
+    print_error_unknown_operand_combo(instr, asm_context);
+    return -1;
+  }
+    else
+  {
+    print_error_unknown_instr(instr, asm_context);
+  }
+
 
   return -1;
 }

@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2015 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -173,7 +173,8 @@ int parse_dc32(struct _asm_context *asm_context)
 {
   char token[TOKENLEN];
   int token_type;
-  int data32;
+  //int data32;
+  struct _var var;
   uint32_t udata32;
 
   if (asm_context->segment == SEGMENT_BSS)
@@ -186,9 +187,22 @@ int parse_dc32(struct _asm_context *asm_context)
   {
     // if the user has a comma at the end, but no data, this is okay
     token_type = tokens_get(asm_context, token, TOKENLEN);
-    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF) break;
+    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF) { break; }
     tokens_push(asm_context, token, token_type);
 
+    if (eval_expression_ex(asm_context, &var) == -1)
+    {
+      if (asm_context->pass == 2)
+      {
+        return -1;
+      }
+
+      eat_operand(asm_context);
+    }
+
+    udata32 = var_get_bin32(&var);
+
+#if 0
     if (eval_expression(asm_context, &data32) != 0)
     {
       if (asm_context->pass == 2)
@@ -200,6 +214,7 @@ int parse_dc32(struct _asm_context *asm_context)
       data32 = 0;
     }
     udata32 = (uint32_t)data32;
+#endif
 
     if (asm_context->memory.endian == ENDIAN_LITTLE)
     {
@@ -254,9 +269,15 @@ int parse_dc64(struct _asm_context *asm_context)
 
     if (eval_expression_ex(asm_context, &var) == -1)
     {
+      if (asm_context->pass == 2)
+      {
+        return -1;
+      }
+
       eat_operand(asm_context);
     }
-    udata64 = (uint64_t)var_get_int64(&var);
+
+    udata64 = (uint64_t)var_get_bin64(&var);
 
     if (asm_context->memory.endian == ENDIAN_LITTLE)
     {
@@ -283,7 +304,8 @@ int parse_dc64(struct _asm_context *asm_context)
 
     asm_context->data_count += 8;
     token_type = tokens_get(asm_context, token, TOKENLEN);
-    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF) break;
+
+    if (token_type == TOKEN_EOL || token_type == TOKEN_EOF) { break; }
 
     if (IS_NOT_TOKEN(token, ','))
     {
@@ -313,16 +335,17 @@ int parse_dc(struct _asm_context *asm_context)
   return -1;
 }
 
+#if 0
 int parse_dq(struct _asm_context *asm_context)
 {
   char token[TOKENLEN];
   int token_type;
   struct _var var;
-  uint32_t udata32;
+  uint32_t udata64;
   union
   {
-    float f32;
-    uint32_t u32;
+    double f64;
+    uint64_t u64;
   } data;
 
   if (asm_context->segment == SEGMENT_BSS)
@@ -342,16 +365,10 @@ int parse_dq(struct _asm_context *asm_context)
     {
       eat_operand(asm_context);
     }
-    data.f32 = var_get_float(&var);
-    udata32 = data.u32;
 
-#ifdef __ORDER_LITTLE_ENDIAN__
-    //int swap = (asm_context->memory.endian == ENDIAN_LITTLE) ? 
-#else
-    //int swap = 1;
-#endif
+    data.f64 = var_get_float(&var);
+    udata64 = data.u64;
 
-    //if (swap == 0)
     if (asm_context->memory.endian == ENDIAN_LITTLE)
     {
       memory_write_inc(asm_context, udata32 & 0xff, DL_DATA);
@@ -382,6 +399,7 @@ int parse_dq(struct _asm_context *asm_context)
 
   return 0;
 }
+#endif
 
 int parse_ds(struct _asm_context *asm_context, int n)
 {
@@ -426,7 +444,6 @@ int parse_ds(struct _asm_context *asm_context, int n)
   return 0;
 }
 
-// Thanks Mark.
 int parse_resb(struct _asm_context *asm_context, int size)
 {
   int num;
@@ -445,5 +462,55 @@ int parse_resb(struct _asm_context *asm_context, int size)
   asm_context->address += (num * size);
 
   return 0;
+}
+
+static int parse_align(struct _asm_context *asm_context, int num)
+{
+  int mask;
+
+  if (num > 1024)
+  {
+    print_error("align constant too large", asm_context);
+    return -1;
+  }
+
+  mask = num - 1;
+
+  while ((asm_context->address & mask) != 0)
+  {
+    // Issue #38: Can't actually write a byte here incase this is
+    // aligning resb/w directives which don't write any data out.
+    //memory_write_inc(asm_context, 0, DL_EMPTY);
+    asm_context->address++;
+  }
+
+  return 0;
+}
+
+int parse_align_bits(struct _asm_context *asm_context)
+{
+  int num;
+
+  if (eval_expression(asm_context, &num) == -1 || (num % 8) != 0)
+  {
+    print_error("align expects 16, 32, 64, 128, etc bits", asm_context);
+    return -1;
+  }
+
+  num = num / 8;
+
+  return parse_align(asm_context, num);
+}
+
+int parse_align_bytes(struct _asm_context *asm_context)
+{
+  int num;
+
+  if (eval_expression(asm_context, &num) == -1)
+  {
+    return -1;
+  }
+
+  return parse_align(asm_context, num);
 }
 

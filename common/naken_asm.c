@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -23,6 +23,7 @@
 #include "fileio/write_elf.h"
 #include "fileio/write_hex.h"
 #include "fileio/write_srec.h"
+#include "fileio/write_wdc.h"
 
 enum
 {
@@ -30,19 +31,21 @@ enum
   FORMAT_BIN,
   FORMAT_ELF,
   FORMAT_SREC,
+  FORMAT_WDC,
 };
 
 const char *credits =
   "\n"
   "naken_asm\n\n"
-  " Athors: Michael Kohn\n"
+  "Authors: Michael Kohn\n"
   "         Joe Davisson\n"
-  "    CPU: MSP430, MSP430X, 6502, 65816, 6809, 68HC08, 68000, 8051,\n"
-  "         ARM, AVR8, dsPIC, Emotion Engine, MIPS, PIC32, Propeller,\n"
-  "         STM8, THUMB, TMS1000, TMS1100, TMS9900, Z80\n"
+  "    CPU: 4004, 6502, 65816, 6809, 68HC08, 68000, 8051, ARM, AVR8\n"
+  "         Cell BE, dsPIC, Epiphany, LC-3, MIPS, MSP430, PIC14, PIC24,\n"
+  "         PIC32, Playstation 2 EE, PowerPC, Propeller, RISC-V,\n"
+  "         STM8, SuperFX, THUMB, TMS1000, TMS1100, TMS9900, Z80\n"
   "    Web: http://www.mikekohn.net/\n"
   "  Email: mike@mikekohn.net\n"
-  "Version: "VERSION"\n";
+  "Version: " VERSION "\n";
 
 static void new_extension(char *filename, char *ext, int len)
 {
@@ -102,13 +105,19 @@ int main(int argc, char *argv[])
            "   -o <outfile>\n"
            "   -h             [output hex file]\n"
 #ifndef DISABLE_ELF
-           "   -e             [output elf file]\n"
+           "   -elf           [output elf file]\n"
 #endif
-           "   -b             [output binary file]\n"
-           "   -s             [output srec file]\n"
+           "   -bin           [output binary file]\n"
+           "   -srec          [output srec file]\n"
+#ifndef DISABLE_WDC
+           "   -wdc           [WDC binary file]\n"
+#endif
            "   -l             [create .lst listing file]\n"
            "   -I             [add to include path]\n"
            "   -q             Quiet (only output errors)\n"
+           "   -dump_symbols  Dump all symbols at end of assembly\n"
+           "   -dump_macros   Dump all macros at end of assembly\n"
+           "   -optimize      Optimize instructions (see docs for info)\n"
            "\n");
     exit(0);
   }
@@ -127,22 +136,27 @@ int main(int argc, char *argv[])
       format = FORMAT_HEX;
     }
       else
-    if (strcmp(argv[i], "-b") == 0)
+    if (strcmp(argv[i], "-bin") == 0 || strcmp(argv[i], "-b") == 0)
     {
       format = FORMAT_BIN;
     }
       else
-    if (strcmp(argv[i], "-s") == 0)
+    if (strcmp(argv[i], "-srec") == 0 || strcmp(argv[i], "-s") == 0)
     {
       format = FORMAT_SREC;
     }
 #ifndef DISABLE_ELF
       else
-    if (strcmp(argv[i], "-e") == 0)
+    if (strcmp(argv[i], "-elf") == 0 || strcmp(argv[i], "-e") == 0)
     {
       format = FORMAT_ELF;
     }
 #endif
+      else
+    if (strcmp(argv[i], "-wdc") == 0)
+    {
+      format = FORMAT_WDC;
+    }
 #if 0
       else
     if (strcmp(argv[i], "-d") == 0)
@@ -159,6 +173,7 @@ int main(int argc, char *argv[])
     if (strncmp(argv[i], "-I", 2) == 0)
     {
       char *s = argv[i];
+
       if (s[2] == 0)
       {
         if (add_to_include_path(&asm_context, argv[++i]) != 0)
@@ -182,12 +197,34 @@ int main(int argc, char *argv[])
       asm_context.quiet_output = 1;
     }
       else
+    if (strcmp(argv[i], "-dump_symbols") == 0)
     {
-      if (infile != NULL)
+      asm_context.dump_symbols = 1;
+    }
+      else
+    if (strcmp(argv[i], "-dump_macros") == 0)
+    {
+      asm_context.dump_macros = 1;
+    }
+      else
+    if (strcmp(argv[i], "-optimize") == 0)
+    {
+      asm_context.optimize = 1;
+    }
+      else
+    {
+      if (argv[i][0] == '-')
       {
-        printf("Error: Cannot use %s as input file since %s was already chosen.\n", argv[1], infile);
+        printf("Error: Unknown command line argument '%s'\n", argv[i]);
         exit(1);
       }
+
+      if (infile != NULL)
+      {
+        printf("Error: Cannot use %s as input file since %s was already chosen.\n", argv[i], infile);
+        exit(1);
+      }
+
       infile = argv[i];
     }
   }
@@ -206,6 +243,7 @@ int main(int argc, char *argv[])
       case FORMAT_BIN: outfile = "out.bin"; break;
       case FORMAT_ELF: outfile = "out.elf"; break;
       case FORMAT_SREC: outfile = "out.srec"; break;
+      case FORMAT_WDC: outfile = "out.wdc"; break;
       default: outfile = "out.err"; break;
     }
   }
@@ -217,6 +255,12 @@ int main(int argc, char *argv[])
     exit(1);
   }
 #endif
+
+  if (add_to_include_path(&asm_context, "include") != 0)
+  {
+    printf("Internal Error:  Too many include paths\n");
+    exit(1);
+  }
 
   if (tokens_open_file(&asm_context, infile) != 0)
   {
@@ -299,6 +343,7 @@ int main(int argc, char *argv[])
     else
   {
     symbols_lock(&asm_context.symbols);
+    symbols_scope_reset(&asm_context.symbols);
     // macros_lock(&asm_context.defines_heap);
 
     if (asm_context.quiet_output == 0) { printf("Pass 2...\n"); }
@@ -321,7 +366,7 @@ int main(int argc, char *argv[])
       else
     if (format == FORMAT_SREC)
     {
-      write_srec(&asm_context.memory, out);
+      write_srec(&asm_context.memory, out, cpu_list[asm_context.cpu_list_index].srec_size);
     }
 #ifndef DISABLE_ELF
       else
@@ -330,6 +375,11 @@ int main(int argc, char *argv[])
       write_elf(&asm_context.memory, out, &asm_context.symbols, asm_context.filename, asm_context.cpu_type, cpu_list[asm_context.cpu_list_index].alignment);
     }
 #endif
+      else
+    if (format == FORMAT_WDC)
+    {
+      write_wdc(&asm_context.memory, out);
+    }
 
     if (dbg != NULL)
     {
@@ -352,7 +402,9 @@ int main(int argc, char *argv[])
     int ch = 0;
     char str[17];
     int ptr = 0;
+
     fprintf(asm_context.list, "data sections:");
+
     for (i = asm_context.memory.low_address; i <= asm_context.memory.high_address; i++)
     {
       if (memory_debug_line(&asm_context, i) == -2)
@@ -408,9 +460,7 @@ int main(int argc, char *argv[])
   //memory_free(&asm_context.memory);
   assembler_free(&asm_context);
 
-  if (error_flag != 0) { return -1; }
-
-  return 0;
+  return error_flag == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 

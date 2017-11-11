@@ -5,7 +5,7 @@
  *     Web: http://www.mikekohn.net/
  * License: GPL
  *
- * Copyright 2010-2015 by Michael Kohn, Joe Davisson
+ * Copyright 2010-2017 by Michael Kohn, Joe Davisson
  *
  * 65816 by Joe Davisson
  *
@@ -33,13 +33,17 @@ static int get_num(struct _asm_context *asm_context,
 {
   char modifier = 0;
 
+  // check for modifiers
   if(IS_TOKEN(token, '<'))
     modifier = '<';
   else if(IS_TOKEN(token, '>'))
     modifier = '>';
+  else if(IS_TOKEN(token, '^'))
+    modifier = '^';
   else
     tokens_push(asm_context, token, *token_type);
 
+  // obtain number
   if(eval_expression(asm_context, num) != 0)
   {
     if(asm_context->pass == 1)
@@ -48,6 +52,7 @@ static int get_num(struct _asm_context *asm_context,
       return -1;
   }
 
+  // extract single byte
   if(modifier == '<')
   {
     *num &= 0xFF;
@@ -56,6 +61,12 @@ static int get_num(struct _asm_context *asm_context,
   else if(modifier == '>')
   {
     *num >>= 8;
+    *num &= 0xFF;
+    *size = 8;
+  }
+  else if(modifier == '^')
+  {
+    *num >>= 16;
     *num &= 0xFF;
     *size = 8;
   }
@@ -68,7 +79,9 @@ static int get_address(struct _asm_context *asm_context,
                        int *num, int *size)
 {
   char modifier = 0;
+  int worst_case = 0;
 
+  // check for modifiers
   if(IS_TOKEN(token, '<'))
     modifier = '<';
   else if(IS_TOKEN(token, '!'))
@@ -78,12 +91,35 @@ static int get_address(struct _asm_context *asm_context,
   else
     tokens_push(asm_context, token, *token_type);
 
+  // obtain address
   if(eval_expression(asm_context, num) != 0)
   {
     if(asm_context->pass == 1)
       eat_operand(asm_context);
     else
       return -1;
+
+    // Store a flag in this address to remind on pass 2 that this
+    // instruction can't use zero page.
+    memory_write(asm_context, asm_context->address, 1, asm_context->line);
+    worst_case = 1;
+  }
+
+  // On pass 2, figure out if the size of the operand was unknown in pass 1
+  worst_case = memory_read(asm_context, asm_context->address);
+
+  // try to guess addressing mode if one hasn't been forced
+  if(*size == 0)
+  {
+    *size = 8;
+
+    if(*num > 0xFF)
+      *size = 16;
+
+    if(*num > 0xFFFF)
+      *size = 24;
+
+    if (*size == 8 && worst_case == 1) { *size = 16; }
   }
 
   if(modifier == '<')
@@ -129,19 +165,15 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
   char token[TOKENLEN];
   char instr_case[TOKENLEN];
   char temp[256];
-  int token_type;
-  int opcode;
-  int op;
-  int instr_enum;
-  int num;
-  int size;
-  int bytes;
-  int i;
-  int src, dst;
-  int label;
-
-  // reset label flag
-  label = 0;
+  int token_type = 0;
+  int opcode = 0;
+  int op = 0;
+  int instr_enum = 0;
+  int num = 0;
+  int size = 0;
+  int bytes = 0;
+  int i = 0;
+  int src = 0, dst = 0;
 
   // make lowercase
   lower_copy(instr_case, instr);
@@ -163,7 +195,8 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
   }
   else
   {
-    for(i = 0; i < 92; i++)
+    // search instruction table
+    for(i = 0; i < 90; i++)
     {
       if(strcmp(instr_case, table_65816[i].name) == 0)
       {
@@ -171,17 +204,17 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         break;
       }
     }
-
     // no matching instruction
     if(instr_enum == -1)
     {
-     print_error_unexp(token, asm_context);
+     printf("No matching instruction for \"%s\".\n", instr_case);
      return -1;
     }
 
     // get default addressing mode
     op = table_65816[instr_enum].op;
 
+    // start with unknown number/address size
     size = 0;
   }
 
@@ -191,6 +224,7 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
     if(GET_TOKEN() == TOKEN_EOL)
       break;
 
+    // dot suffix
     if(IS_TOKEN(token, '.'))
     {
       if(GET_TOKEN() == TOKEN_EOL)
@@ -228,9 +262,9 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         if(get_num(asm_context, token, &token_type, &num, &size) == -1)
           return -1;
 
-        if(num < -128 || num > 0xFF)
+        if(num < -128 || num > 127)
         {
-          print_error("8-bit constant out of range.", asm_context);
+          print_error("8-bit signed constant out of range.", asm_context);
           return -1;
         }
 
@@ -264,27 +298,46 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
     }
     else if(op == OP_RELATIVE_LONG)
     {
-      tokens_push(asm_context, token, token_type);
-
-      if(GET_TOKEN() == TOKEN_EOL)
-        break;
-
-      if(get_num(asm_context, token, &token_type, &num, &size) == -1)
-        return -1;
-
-      if(asm_context->pass == 2)
+      if(IS_TOKEN(token, '#'))
       {
-        // calculate branch offset, need to add 3 to current
-        // address, since thats where the program counter would be
-        num -= (asm_context->address + 3);
+        if(GET_TOKEN() == TOKEN_EOL)
+          break;
+
+        if(get_num(asm_context, token, &token_type, &num, &size) == -1)
+          return -1;
 
         if(num < -32768 || num > 32767)
         {
-          print_error("Relative long branch out of range", asm_context);
+          print_error("16-bit signed constant out of range.", asm_context);
           return -1;
         }
 
         num = (uint16_t)num;
+      }
+      else
+      {
+        tokens_push(asm_context, token, token_type);
+
+        if(GET_TOKEN() == TOKEN_EOL)
+          break;
+
+        if(get_num(asm_context, token, &token_type, &num, &size) == -1)
+          return -1;
+
+        if(asm_context->pass == 2)
+        {
+          // calculate branch offset, need to add 3 to current
+          // address, since thats where the program counter would be
+          num -= (asm_context->address + 3);
+
+          if(num < -32768 || num > 32767)
+          {
+            print_error("Relative long branch out of range", asm_context);
+            return -1;
+          }
+
+          num = (uint16_t)num;
+        }
       }
     }
     else if(op == OP_BLOCK_MOVE)
@@ -345,12 +398,10 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         if(get_num(asm_context, token, &token_type, &num, &size) == -1)
           return -1;
 
-        if(op == OP_IMMEDIATE8)
-          size = 8;
-        else
-          op = OP_IMMEDIATE16;
+        op = OP_IMMEDIATE16;
 
-        if(size == 8)
+        // value was forced with .b, .w, or .l
+	if(size == 8)
         {
           if(num < -128 || num > 0xFF)
           {
@@ -374,6 +425,17 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         {
           print_error("Cannot force long value in immediate mode.", asm_context);
           return -1;
+        }
+        else
+        {
+          // otherwise default to 16-bit
+          if(num < -32768 || num > 0xFFFF)
+          {
+            print_error("16-bit constant out of range.", asm_context);
+            return -1;
+          }
+
+          num = (uint16_t)num;
         }
       }
       else if(IS_TOKEN(token, '('))
@@ -537,37 +599,15 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         if(get_address(asm_context, token, &token_type, &num, &size) == -1)
           return -1;
 
-        // if all zeros then this is a forward-label
-        if(asm_context->pass == 2)
-        {
-          if((memory_read(asm_context, asm_context->address + 1) == 0) &&
-             (memory_read(asm_context, asm_context->address + 2) == 0) &&
-             (memory_read(asm_context, asm_context->address + 3) == 0))
-          {
-            op = OP_ADDRESS24;
-            label = 1;
-          }
-        }
-
         if(num < 0 || num > 0xFFFFFF)
         {
           print_error("Address out of range.", asm_context);
           return -1;
         }
 
-        if(op != OP_ADDRESS24)
-        {
-          op = OP_ADDRESS8;
-
-          if(num > 0xFF)
-            op = OP_ADDRESS16;
-
-          if(num > 0xFFFF)
-            op = OP_ADDRESS24;
-        }
-
-        if(asm_context->pass == 1 && num == 0)
-          op = OP_ADDRESS24;
+        // forward label
+        if(num == 0)
+          size = 16;
 
         if(size == 8)
         {
@@ -666,19 +706,7 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
     }
   }
 
-  // add a NOP (0xEA) after 16-bit forward-label addresses 
-  if(label == 1 && size == 0)
-  {
-    if(((instr_enum == M65816_JMP) || (instr_enum == M65816_JSR))
-       && (num <= 0xFFFF))
-    {
-      num |= 0xEA0000; 
-      // temporarily change addressing mode
-      // so the proper instruction can be found
-      op = OP_ADDRESS16;
-    }
-  }
-
+  // find opcode in table
   opcode = -1;
 
   for(i = 0; i < 256; i++)
@@ -690,20 +718,20 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
         opcode = i;
         break;
       }
+      else if(op == OP_IMMEDIATE16)
+      {
+        if(table_65816_opcodes[i].op == OP_IMMEDIATE8)
+        {
+          op = OP_IMMEDIATE8;
+          opcode = i;
+          break;
+        }
+      }
       else if(op == OP_ADDRESS8)
       {
         if(table_65816_opcodes[i].op == OP_ADDRESS16)
         {
           op = OP_ADDRESS16;
-          opcode = i;
-          break;
-        }
-      }
-      else if(op == OP_ADDRESS16)
-      {
-        if(table_65816_opcodes[i].op == OP_ADDRESS24)
-        {
-          op = OP_ADDRESS24;
           opcode = i;
           break;
         }
@@ -745,15 +773,13 @@ int parse_instruction_65816(struct _asm_context *asm_context, char *instr)
     return -1;
   }
 
-  // change addressing mode back so that storage size is correct
-  if(label == 1)
-      op = OP_ADDRESS24;
-
+  // fix for .b in immediate mode
   if(size == 8 && op == OP_IMMEDIATE16)
     bytes = op_bytes[OP_IMMEDIATE8];
   else
     bytes = op_bytes[op];
 
+  // write output
   add_bin8(asm_context, opcode & 0xFF, IS_OPCODE);
 
   if(bytes > 1)

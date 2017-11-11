@@ -3,9 +3,9 @@
  *  Author: Michael Kohn
  *   Email: mike@mikekohn.net
  *     Web: http://www.mikekohn.net/
- * License: GPL
+ * License: GPLv3
  *
- * Copyright 2010-2016 by Michael Kohn
+ * Copyright 2010-2017 by Michael Kohn
  *
  */
 
@@ -13,12 +13,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "asm/65xx.h"
+#include "asm/6502.h"
 #include "asm/65816.h"
 #include "asm/6800.h"
 #include "asm/6809.h"
 #include "asm/68hc08.h"
-#include "asm/680x0.h"
+#include "asm/68000.h"
 #include "asm/8051.h"
 #include "asm/arm.h"
 #include "asm/avr8.h"
@@ -43,11 +43,11 @@
 #include "common/macros.h"
 #include "common/symbols.h"
 #include "common/print_error.h"
-#include "disasm/65xx.h"
+#include "disasm/6502.h"
 #include "disasm/6800.h"
 #include "disasm/6809.h"
 #include "disasm/68hc08.h"
-#include "disasm/680x0.h"
+#include "disasm/68000.h"
 #include "disasm/arm.h"
 #include "disasm/avr8.h"
 #include "disasm/dspic.h"
@@ -107,28 +107,6 @@ static int parse_entry_point(struct _asm_context *asm_context)
   }
 
   asm_context->memory.entry_point = num * asm_context->bytes_per_address;
-
-  return 0;
-}
-
-static int parse_align(struct _asm_context *asm_context)
-{
-  int num;
-
-  if (eval_expression(asm_context, &num) == -1 ||
-     (num != 16 && num != 32 && num != 64 && num != 128))
-  {
-    print_error("align expects 16, 32, 64, or 128 bytes", asm_context);
-    return -1;
-  }
-
-  num = num / 8;
-  int mask = num - 1;
-
-  while ((asm_context->address & mask) != 0)
-  {
-    memory_write_inc(asm_context, 0, DL_EMPTY);
-  }
 
   return 0;
 }
@@ -267,7 +245,7 @@ static int parse_export(struct _asm_context *asm_context)
     }
   }
 
-  asm_context->line++;
+  //asm_context->line++;
 
   return 0;
 }
@@ -350,16 +328,25 @@ void assembler_print_info(struct _asm_context *asm_context, FILE *out)
   if (asm_context->quiet_output) { return; }
 
   fprintf(out, "\nProgram Info:\n");
-#ifdef DEBUG
-  symbols_print(&asm_context->symbols);
-  macros_print(&asm_context->macros);
-#endif
+
+  if (asm_context->dump_symbols == 1 || out != stdout)
+  {
+    symbols_print(&asm_context->symbols, out);
+  }
+
+  if (asm_context->dump_macros == 1)
+  {
+    macros_print(&asm_context->macros, out);
+  }
 
   fprintf(out, "Include Paths: .\n");
+
   int ptr = 0;
+
   if (asm_context->include_path[ptr] != 0)
   {
     fprintf(out, "               ");
+
     while(1)
     {
       if (asm_context->include_path[ptr] == 0 &&
@@ -402,9 +389,15 @@ int check_for_directive(struct _asm_context *asm_context, char *token)
     return 1;
   }
     else
-  if (strcasecmp(token, "align") == 0)
+  if (strcasecmp(token, "align") == 0 || strcasecmp(token, "align_bits") == 0)
   {
-    if (parse_align(asm_context) != 0) { return -1; }
+    if (parse_align_bits(asm_context) != 0) { return -1; }
+    return 1;
+  }
+    else
+  if (strcasecmp(token, "align_bytes") == 0)
+  {
+    if (parse_align_bytes(asm_context) != 0) { return -1; }
     return 1;
   }
     else
@@ -440,25 +433,22 @@ int check_for_directive(struct _asm_context *asm_context, char *token)
     return 1;
   }
     else
-  if (strcasecmp(token, "dq") == 0)
-  {
-    if (parse_dq(asm_context) != 0) { return -1; }
-    return 1;
-  }
-    else
   if (strcasecmp(token, "dw") == 0 || strcasecmp(token, "dc16") == 0)
   {
     if (parse_dc16(asm_context) != 0) return -1;
     return 1;
   }
     else
-  if (strcasecmp(token, "dl") == 0 || strcasecmp(token, "dc32") == 0)
+  if (strcasecmp(token, "dl") == 0 ||
+      strcasecmp(token, "dc32") == 0 ||
+      strcasecmp(token, "dd") == 0)
   {
     if (parse_dc32(asm_context) != 0) { return -1; }
     return 1;
   }
     else
-  if (strcasecmp(token, "dc64") == 0)
+  if (strcasecmp(token, "dc64") == 0 ||
+      strcasecmp(token, "dq") == 0)
   {
     if (parse_dc64(asm_context) != 0) { return -1; }
     return 1;
@@ -650,7 +640,7 @@ int assemble(struct _asm_context *asm_context)
 
       if (strcasecmp(token, "define") == 0)
       {
-        if (macros_parse(asm_context, IS_DEFINE) != 0) return -1;
+        if (macros_parse(asm_context, IS_DEFINE) != 0) { return -1; }
       }
         else
       if (strcasecmp(token, "ifdef") == 0)
@@ -715,22 +705,22 @@ int assemble(struct _asm_context *asm_context)
         else
       if (strcasecmp(token, "macro") == 0)
       {
-        if (macros_parse(asm_context, IS_MACRO) != 0) return -1;
+        if (macros_parse(asm_context, IS_MACRO) != 0) { return -1; }
       }
         else
       if (strcasecmp(token, "pragma") == 0)
       {
-        if (parse_pragma(asm_context) != 0) return -1;
+        if (parse_pragma(asm_context) != 0) { return -1; }
       }
         else
       if (strcasecmp(token, "device") == 0)
       {
-        if (parse_device(asm_context) != 0) return -1;
+        if (parse_device(asm_context) != 0) { return -1; }
       }
         else
       if (strcasecmp(token, "set") == 0)
       {
-        if (parse_set(asm_context) != 0) return -1;
+        if (parse_set(asm_context) != 0) { return -1; }
       }
         else
       if (strcasecmp(token, "export") == 0)
